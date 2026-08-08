@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -65,7 +66,21 @@ namespace DfoServer.Network
             await _sendLock.WaitAsync(cancellationToken);
             try
             {
-                await Stream.WriteAsync(
+                NetworkStream stream;
+                try
+                {
+                    stream = Stream;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // TcpClient.GetStream uses InvalidOperationException for
+                    // an already disconnected socket. Normalize only this
+                    // transport boundary so shared best-effort callers can
+                    // keep surfacing unrelated InvalidOperationExceptions.
+                    throw new IOException(
+                        "TCP stream is unavailable.", ex);
+                }
+                await stream.WriteAsync(
                     data, 0, data.Length, cancellationToken);
             }
             finally

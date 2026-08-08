@@ -23,6 +23,33 @@ namespace DfoServer.GameWorld
         private static readonly Dictionary<long, CeraRoomInfo?> DungeonGateReturnCache =
             new Dictionary<long, CeraRoomInfo?>();
 
+        public static bool ContainsArea(int townId, int areaId)
+        {
+            if (townId <= 0 || townId > byte.MaxValue ||
+                areaId < 0 || areaId > byte.MaxValue)
+            {
+                return false;
+            }
+
+            try
+            {
+                var towns = LstFile.Parse(
+                    PvfArchiveAccessor.ReadText("town/town.lst"));
+                var entry = towns?.GetById(townId);
+                if (entry == null || string.IsNullOrEmpty(entry.FilePath))
+                    return false;
+
+                var town = TownFile.Parse(PvfArchiveAccessor.ReadText(
+                    Path.Combine("town", entry.FilePath)));
+                return town?.Areas != null &&
+                       town.Areas.Any(area => area.Id == areaId);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static CeraRoomInfo GetCeraRoomInfo(int townId)
         {
             var roomInfo = new CeraRoomInfo();

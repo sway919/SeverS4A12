@@ -86,6 +86,8 @@ namespace DfoServer
             ("--selftest-honor-level", SelfTests.HonorLevelSelfTest.Run),
             ("--selftest-character-experience-progression", SelfTests.CharacterExperienceProgressionSelfTest.Run),
             ("--selftest-party", SelfTests.PartySelfTest.Run),
+            ("--selftest-town-teleport-protocol", SelfTests.TownTeleportProtocolSelfTest.Run),
+            ("--selftest-town-giveup-generation", SelfTests.TownGiveupGenerationSelfTest.Run),
             ("--selftest-party-command-isolation", SelfTests.PartyCommandIsolationSelfTest.Run),
             ("--selftest-party-udp-relay-core", SelfTests.PartyUdpRelayCoreSelfTest.Run),
             ("--selftest-other-user-info", SelfTests.OtherUserInfoSelfTest.Run),

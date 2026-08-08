@@ -229,7 +229,8 @@ namespace DfoServer.Network
                 _partyManager,
                 sessionDirectory,
                 _inventoryRefreshSender,
-                _dungeonInstances);
+                _dungeonInstances,
+                _characterTransitions);
             var reviveCoinService = new Game.ReviveCoin.ReviveCoinService(dailyResetService);
             _dungeonHandler = new DungeonHandler(
                 dungeonPersistentEffects,
@@ -645,6 +646,8 @@ namespace DfoServer.Network
             d[0x0025] = _townHandler.Handle_ENUM_CMDPACKET_FINISH_LOADING;
             d[0x002A] = _townHandler.Handle_ENUM_CMDPACKET_GIVEUP_GAME;
             d[0x0084] = _townHandler.Handle_ENUM_CMDPACKET_GIVEUP_GAME;
+            d[(ushort)CmdPacketType.PARTY_TELEPORT] =
+                _townHandler.Handle_ENUM_CMDPACKET_PARTY_TELEPORT;
             d[0x00ED] = _townHandler.Handle_ENUM_CMDPACKET_TELEPORT;
         }
 
