@@ -281,6 +281,8 @@ namespace DfoServer.Game.Inventory
                                 Status = ExperienceItemUseStatus.Success,
                                 AccountId = accountId,
                                 ItemTemplateId = resolvedItemId,
+                                IsLevelUpTicket = definition.GrantKind
+                                    == ExperienceItemGrantKind.LevelUpRange,
                                 ConsumedItem = consumedItem,
                                 PreviousLevel = character.Level,
                                 NewLevel = grant.NewLevel,

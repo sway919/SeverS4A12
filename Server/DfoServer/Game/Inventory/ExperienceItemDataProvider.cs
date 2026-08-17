@@ -12,6 +12,7 @@ namespace DfoServer.Game.Inventory
         None,
         Fixed,
         Percent,
+        LevelUpRange,
         CrackOfDimension,
     }
 
@@ -53,12 +54,23 @@ namespace DfoServer.Game.Inventory
                 && (AbsoluteExpirationUnixTime <= 0
                     || (uint)AbsoluteExpirationUnixTime > unixTime);
 
-        internal uint CalculateGain(byte level)
+        internal uint CalculateGain(byte level, uint currentExp)
         {
             if (!IsSupported || level == 0)
                 return 0;
             if (GrantKind == ExperienceItemGrantKind.Fixed)
                 return Value;
+            if (GrantKind == ExperienceItemGrantKind.LevelUpRange)
+            {
+                // 升级券的 [levelup range] 表示提升等级数；换算成到目标等级门槛所需的经验值。
+                var targetLevel = Math.Min(ExpTableProvider.MaxLevel, (int)(level + Value));
+                var targetExp = targetLevel <= 1
+                    ? 0L
+                    : Math.Max(0, ExpTableProvider.GetLevelThreshold(targetLevel - 1));
+                return targetExp > currentExp
+                    ? (uint)Math.Min(uint.MaxValue, targetExp - currentExp)
+                    : 0;
+            }
             if (GrantKind != ExperienceItemGrantKind.Percent)
                 return 0;
 
@@ -107,6 +119,7 @@ namespace DfoServer.Game.Inventory
                 "impossible contents", "expiration date", "usable period", "trade limit max",
                 "daily delete item", "daily purchase limit", "use wav", "impossible jobs",
                 "action usable place", "increase status type", "npc gift disallowance",
+                "action type", "levelup range", "usable game server type", "resent day",
                 // 本路径中 [need material] 是获得/兑换元数据，
                 // 不是 [increase status type] 的使用消耗条件。
                 "need material",
@@ -125,21 +138,29 @@ namespace DfoServer.Game.Inventory
 
             var effects = stackable.StatusIncreases
                 ?? new List<StackableStatusIncreaseEntry>();
-            result.IsExperienceLike = effects.Any(effect =>
-                IsCharacterExperienceEffect(effect?.EffectType));
+            // 升级券没有普通经验书的 [increase status type]，而是通过
+            // [action type] [levelupticket] + [levelup range] 描述行为。
+            var isLevelUpTicket = NormalizeEffect(stackable.ActionTypeName)
+                .Trim('[', ']', '`') == "levelupticket";
+            result.IsExperienceLike = isLevelUpTicket
+                || effects.Any(effect => IsCharacterExperienceEffect(effect?.EffectType));
             if (!result.IsExperienceLike)
                 return result;
 
-            if (!IsEtcVariantZeroStackable(stackable.StackableType))
+            var expectedVariant = isLevelUpTicket ? 1 : 0;
+            if (!IsEtcVariantStackable(stackable.StackableType, expectedVariant))
             {
-                return Reject(result, "experience effect is not a variant-0 [etc] stackable");
+                return Reject(
+                    result,
+                    $"experience effect is not a variant-{expectedVariant} [etc] stackable");
             }
 
             var statusNodes = stackable.Root.GetChildren("increase status type");
-            if (effects.Count != 1
-                || statusNodes.Count != 1
-                || statusNodes[0].Children.Count != 0
-                || statusNodes[0].DataItems.Count != 1)
+            if (!isLevelUpTicket
+                && (effects.Count != 1
+                    || statusNodes.Count != 1
+                    || statusNodes[0].Children.Count != 0
+                    || statusNodes[0].DataItems.Count != 1))
             {
                 return Reject(result, "experience effect is mixed with another stackable behavior");
             }
@@ -170,7 +191,31 @@ namespace DfoServer.Game.Inventory
                     "experience-gauge restriction is not represented structurally in PVF");
             }
 
-            return ApplyGrant(effects[0], result);
+            return isLevelUpTicket
+                ? ApplyLevelUpTicket(stackable, result)
+                : ApplyGrant(effects[0], result);
+        }
+
+        private static ExperienceItemDefinition ApplyLevelUpTicket(
+            StackableItemFile stackable,
+            ExperienceItemDefinition result)
+        {
+            if (!StackablePvfValueReader.TryReadOptionalNonNegativeInt(
+                    stackable,
+                    "levelup range",
+                    out var hasValue,
+                    out var levelCount)
+                || !hasValue
+                || levelCount <= 0
+                || levelCount > ExpTableProvider.MaxLevel)
+            {
+                return Reject(result, "invalid [levelup range] definition");
+            }
+
+            result.GrantKind = ExperienceItemGrantKind.LevelUpRange;
+            result.Value = (uint)levelCount;
+            result.IsSupported = true;
+            return result;
         }
 
         private static ExperienceItemDefinition ApplyGrant(
@@ -458,7 +503,7 @@ namespace DfoServer.Game.Inventory
                 values.Add(value);
         }
 
-        private static bool IsEtcVariantZeroStackable(string raw)
+        private static bool IsEtcVariantStackable(string raw, int expectedVariant)
         {
             var match = Regex.Match(
                 raw ?? string.Empty,
@@ -469,7 +514,7 @@ namespace DfoServer.Game.Inventory
                     "etc",
                     StringComparison.OrdinalIgnoreCase)
                 && int.TryParse(match.Groups["variant"].Value, out var variant)
-                && variant == 0;
+                && variant == expectedVariant;
         }
 
         private static bool IsCharacterExperienceEffect(string effectType)
@@ -482,10 +527,12 @@ namespace DfoServer.Game.Inventory
         }
 
         private static string NormalizeEffect(string effectType)
-            => (effectType ?? string.Empty)
-                .Replace("[", string.Empty)
-                .Replace("]", string.Empty)
-                .Trim()
+            => Regex.Replace(
+                    (effectType ?? string.Empty)
+                        .Replace("[", string.Empty)
+                        .Replace("]", string.Empty),
+                    @"\s+",
+                    string.Empty)
                 .ToLowerInvariant();
 
         private static ExperienceItemDefinition Reject(

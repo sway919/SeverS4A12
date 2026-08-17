@@ -23,6 +23,7 @@ namespace DfoServer.Game.Quests
         private readonly ISessionPacketSender _sender;
         private readonly string _connStr;
         private readonly QuestService _service;
+        private readonly QuestMainlineLevelSkipService _mainlineLevelSkip;
         private readonly DailyChallengeService _dailyChallengeService;
         private readonly ImageCommunicationApplicationService
             _imageCommunicationService;
@@ -56,6 +57,7 @@ namespace DfoServer.Game.Quests
                 : DefaultServerTriggerEchoGrace;
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _service = new QuestService(connStr);
+            _mainlineLevelSkip = new QuestMainlineLevelSkipService(connStr);
             _dailyChallengeService = new DailyChallengeService(connStr);
             _imageCommunicationService =
                 new ImageCommunicationApplicationService(connStr);
@@ -837,6 +839,27 @@ namespace DfoServer.Game.Quests
         public async Task SendAcceptableQuestListAsync()
         {
             await _notifications.SendAcceptableQuestListAsync();
+        }
+
+        public async Task<int> SkipMainlineQuestsBelowLevelAsync(int newLevel)
+        {
+            var characterId = _sender.CharacterId;
+            var player = _sender.Player;
+            if (characterId <= 0 || player == null)
+                return 0;
+
+            var skipped = _mainlineLevelSkip.SkipBelowLevel(
+                characterId,
+                newLevel,
+                player.Job,
+                player.GrowType);
+            if (skipped.Count == 0)
+                return 0;
+
+            await _notifications.SendActiveQuestListAsync(characterId);
+            FileLogger.Log(
+                $"[QuestManager] LEVEL_UP_TICKET mainline skipped: cid={characterId} level={newLevel} count={skipped.Count}");
+            return skipped.Count;
         }
     }
 }

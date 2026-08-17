@@ -50,7 +50,24 @@ namespace DfoServer.Network.Handlers
             var leveledUp = result.NewLevel > result.PreviousLevel;
             var inDungeon = session.Player.CurrentRun != null;
 
-            if (!leveledUp)
+            if (leveledUp && result.IsLevelUpTicket)
+            {
+                // 升级券可能一次跨过多级主线。先补记低等级主线，再发送新的可接任务列表。
+                await TrySendAuxiliaryAsync(
+                    "mainline-skip",
+                    () => SkipMainlineQuestsAsync(session, result.NewLevel));
+                await SendExperienceAsync(session, result, honor, growthCapsule);
+                await TrySendAuxiliaryAsync(
+                    "quest-list",
+                    () => SendQuestListAsync(session));
+                if (!inDungeon)
+                {
+                    await TrySendAuxiliaryAsync(
+                        "subtype1",
+                        () => SendSubtype1Async(session, result, honor));
+                }
+            }
+            else if (!leveledUp)
             {
                 await SendExperienceAsync(session, result, honor, growthCapsule);
             }
@@ -132,7 +149,8 @@ namespace DfoServer.Network.Handlers
                 0x0025,
                 ExpNotificationBuilder.Build(
                     result.NewLevel,
-                    result.NewExp,
+                    // 0x01A2 已经更新等级；升级券通知保留使用前 EXP，避免客户端重复累计。
+                    result.IsLevelUpTicket ? result.PreviousExp : result.NewExp,
                     result.SkillPoints,
                     honor,
                     growthCapsuleExp: GrowthCapsuleDataProvider.GetDisplayProgress(
@@ -145,6 +163,16 @@ namespace DfoServer.Network.Handlers
             if (questManager == null)
                 throw new InvalidOperationException("quest manager is unavailable after level-up");
             await questManager.SendAcceptableQuestListAsync();
+        }
+
+        private static async Task SkipMainlineQuestsAsync(
+            EnhancedClientSession session,
+            byte newLevel)
+        {
+            var questManager = session.GameSession?.QuestManager;
+            if (questManager == null)
+                throw new InvalidOperationException("quest manager is unavailable after level-up");
+            await questManager.SkipMainlineQuestsBelowLevelAsync(newLevel);
         }
 
         private static async Task TrySendAuxiliaryAsync(
