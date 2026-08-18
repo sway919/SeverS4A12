@@ -257,10 +257,24 @@ namespace DfoServer.SelfTests
 
             try
             {
-                Check("Anton randomized objects use PVF template categories",
+                Check("randomized objects disambiguate colliding PVF template IDs",
                     DungeonRandomizedObjectTemplateCatalog.ResolveSpawnMode(18865) == 1
-                    && DungeonRandomizedObjectTemplateCatalog.ResolveSpawnMode(58530) == 0,
-                    ref failures);                var energyMaze = Dungeon.GetDungeonDefaultMaze(218);
+                    && DungeonRandomizedObjectTemplateCatalog.ResolveSpawnMode(58530) == 0
+                    && DungeonRandomizedObjectTemplateCatalog.ResolveSpawnMode(61235) == 0
+                    && DungeonRandomizedObjectTemplateCatalog.ResolveSpawnMode(69001) == 0
+                    && DungeonRandomizedObjectTemplateCatalog.ResolveSpawnMode(69002) == 0
+                    && DungeonRandomizedObjectTemplateCatalog.ResolveSpawnMode(69003) == 0,
+                    ref failures);
+                var northGateObjects = Game.Dungeon.DungeonRandomizedObjectSelectionService.Select(
+                    DungeonRandomizedObjectDefinitionProjector.Project(
+                        Dungeon.GetDungeonDefaultMaze(88)),
+                    _ => 0);
+                Check("North Gate walker uses the ridable monster spawn path",
+                    northGateObjects.Count == 1
+                    && northGateObjects[0].ObjectIndex == 61235
+                    && northGateObjects[0].SpawnMode == 0,
+                    ref failures);
+                var energyMaze = Dungeon.GetDungeonDefaultMaze(218);
                 var energyRooms = Dungeon.GetDungeonRoomCoordinates(218, 0, energyMaze);
                 foreach (var room in energyRooms)
                 {
