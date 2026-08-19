@@ -279,7 +279,8 @@ namespace DfoServer.Network
                 characterRepository,
                 sessionDirectory,
                 udpRelay,
-                characterTransitions: _characterTransitions);
+                characterTransitions: _characterTransitions,
+                inventoryRefresh: _inventoryRefreshSender);
             _raidHandler = new RaidHandler(
                 characterRepository,
                 sessionDirectory,
@@ -436,6 +437,8 @@ namespace DfoServer.Network
         {
             d[(ushort)CmdPacketType.SEND_MESSAGE] =
                 _chatHandler.Handle_SEND_MESSAGE;
+            d[(ushort)CmdPacketType.SET_ITEMTRADE_STATE] =
+                _partyHandler.Handle_SET_ITEMTRADE_STATE;
             d[0x000C] = _partyHandler.Handle_SET_PARTY_INFO;        // 12 创建/更新队伍
             d[0x000D] = async (s, h, b) =>
             {
@@ -505,6 +508,8 @@ namespace DfoServer.Network
             };                                                                    //18
             d[0x0013] = async (s, h, b) =>
             {
+                if (await _partyHandler.TryHandleTradeMoveAsync(s, h, b))
+                    return;
                 if (await _dungeonHandler.TryHandleDeathTowerMoveItem(s, h, b))
                     return;
                 if (await _knightShieldHandler.TryHandleMoveItemSpace(s, h, b))

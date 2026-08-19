@@ -19,7 +19,7 @@ namespace DfoServer.Network.Handlers
     // 状态走 PartyManager(格式无关), 队伍窗口靠 PARTY_INFO(Noti 0x09) 重发整份名册刷新(df 新建/更新即如此)。
     // ⚠️ Phase A 只向请求者本会话下发 PARTY_INFO(单人队够用); 多人广播需 UserId→session 注册表, 留待 Phase B。
     // ⚠️ 响应帧照 df 逆向(PARTY_INFO 无活体样本), 需真机验证客户端渲染(参 compound #432 教训)。
-    public sealed class PartyHandler : IDisposable
+    public sealed partial class PartyHandler : IDisposable
     {
         private readonly PartyManager _partyManager;
         private readonly ICharacterRepository _characterRepository;
@@ -50,7 +50,8 @@ namespace DfoServer.Network.Handlers
             Game.Session.CharacterTransitionCoordinator
                 characterTransitions = null,
             Func<EnhancedClientSession, Task<bool>>
-                announceTownArrivalWithinTransition = null)
+                announceTownArrivalWithinTransition = null,
+            InventoryRefreshSender inventoryRefresh = null)
         {
             _partyManager = partyManager;
             _characterRepository = characterRepository;
@@ -62,6 +63,7 @@ namespace DfoServer.Network.Handlers
             _characterTransitions = characterTransitions;
             _announceTownArrivalWithinTransition =
                 announceTownArrivalWithinTransition;
+            _inventoryRefresh = inventoryRefresh;
             // 断线清理走会话目录的生命周期事件: 断线者自动退队, 剩余成员收到名册刷新。
             // 不订阅就会产生幽灵队员(断线者永久留在名册里)。事件在 session 从目录移除前触发,
             // 只向【剩余成员】发包, 绝不向垂死会话本身发(其 socket 已在关闭流程中)。
@@ -139,6 +141,7 @@ namespace DfoServer.Network.Handlers
         private async Task OnSessionEndingAsync(int characterId, EnhancedClientSession dying)
         {
             var uid = (ushort)characterId;
+            ClearTradePair(uid);
             var result = _partyManager.OnSessionDisconnected(
                 uid, dying.SessionId);
             if (!result.Ok)
@@ -1059,6 +1062,26 @@ namespace DfoServer.Network.Handlers
                     return;
                 }
 
+                var tradeBusy = false;
+                lock (_tradePairsLock)
+                {
+                    tradeBusy = _tradePeers.ContainsKey(inviterUid)
+                        || _tradePeers.ContainsKey(targetUid)
+                        || HasPendingTradeInviteLocked(inviterUid)
+                        || HasPendingTradeInviteLocked(targetUid);
+                    if (!tradeBusy)
+                    {
+                        _pendingTradePeerIds[
+                            MakeDirectedTradeKey(inviterUid, targetUid)] =
+                            new PendingTradeInvite(
+                                session.SessionId,
+                                targetSession.SessionId,
+                                peerInt);
+                    }
+                }
+                if (tradeBusy)
+                    return;
+
                 var tw = new GamePacketWriter();
                 tw.WriteUInt16(inviterUid);   // A.uid
                 tw.WriteByte(1);              // ENUM_PEER_REQUEST_TYPE = 1 TRADE
@@ -1076,7 +1099,15 @@ namespace DfoServer.Network.Handlers
                         $"trade invite target={targetUid}");
                 if (tradeSent)
                 {
-                    FileLogger.Log($"[{ProtocolName}] TRADE REQUEST_PEER A={inviterUid}->B={targetUid} → SC 0x0007 交易形态(11B, ⚠️阶段2待实现)");
+                    FileLogger.Log($"[{ProtocolName}] TRADE REQUEST_PEER A={inviterUid}->B={targetUid} → SC 0x0007 交易形态(11B)");
+                }
+                else
+                {
+                    lock (_tradePairsLock)
+                    {
+                        _pendingTradePeerIds.Remove(
+                            MakeDirectedTradeKey(inviterUid, targetUid));
+                    }
                 }
                 return;
             }
@@ -1238,11 +1269,58 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
-            // ★交易 accept(reqType==1)绝不组队。df 交易走独立 CTradeSpace 路径, 与 party join 无关。
-            //   阶段2(开道具放置窗 + 换物)待专项; 此处止血: 交易同意不再误组队。
+            // 交易使用独立 CTradeSpace 路径，不得落入组队逻辑。
             if (reqType == 1)
             {
-                FileLogger.Log($"[{ProtocolName}] RES_PEER TRADE accept: A={inviterUid} B={accepterUid} → 交易已确认(不组队); ⚠️阶段2放置窗/换物待实现");
+                PendingTradeInvite pendingTrade;
+                lock (_tradePairsLock)
+                {
+                    _pendingTradePeerIds.TryGetValue(
+                        MakeDirectedTradeKey(inviterUid, accepterUid),
+                        out pendingTrade);
+                    _pendingTradePeerIds.Remove(
+                        MakeDirectedTradeKey(inviterUid, accepterUid));
+                }
+                if (pendingTrade == null
+                    || pendingTrade.InviterSessionId != inviterSession.SessionId
+                    || pendingTrade.AccepterSessionId != session.SessionId)
+                {
+                    FileLogger.Log(
+                        $"[{ProtocolName}] RES_PEER TRADE rejected: " +
+                        $"A={inviterUid} B={accepterUid} stale/missing invite");
+                    return;
+                }
+
+                RegisterTradePair(inviterUid, accepterUid);
+
+                var inviterAck = new GamePacketWriter();
+                inviterAck.WriteUInt16(accepterUid);
+                inviterAck.WriteByte(1);
+                inviterAck.WriteInt32(
+                    body.Length >= 7
+                        ? BitConverter.ToInt32(body, 3)
+                        : accepterUid);
+                await inviterSession.SendPacketAsync(
+                    GamePacketEnvelopeBuilder.Build(
+                        0x00,
+                        (ushort)NotiPacketType.RESPONSE_PEER,
+                        inviterAck.ToArray()));
+
+                var accepterAck = new GamePacketWriter();
+                accepterAck.WriteUInt16(inviterUid);
+                accepterAck.WriteByte(1);
+                accepterAck.WriteInt32(
+                    pendingTrade.PeerInt != 0
+                        ? pendingTrade.PeerInt
+                        : inviterUid);
+                await session.SendPacketAsync(
+                    GamePacketEnvelopeBuilder.Build(
+                        0x00,
+                        (ushort)NotiPacketType.RESPONSE_PEER,
+                        accepterAck.ToArray()));
+                FileLogger.Log(
+                    $"[{ProtocolName}] RES_PEER TRADE accept: " +
+                    $"A={inviterUid} B={accepterUid} -> SC 0x0008");
                 return;
             }
             var (icid, iaid) = SessionOwnerResolver.Resolve(inviterSession);
