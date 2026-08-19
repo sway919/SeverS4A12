@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS characters (
     name_bytes BLOB,
     appearance_blob BLOB,
     clone_title_item_id INTEGER NOT NULL DEFAULT 0,
+    -- 删除标志记录了删除时间,当删除标志不为0时即表示角色被删除,这样可以兼容反复创建同名角色并删除
     delete_flag INTEGER NOT NULL DEFAULT 0,
     exp INTEGER NOT NULL DEFAULT 0,
     ex_equip_slot_stat INTEGER NOT NULL DEFAULT 0,

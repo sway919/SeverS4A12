@@ -195,7 +195,7 @@ SELECT character_id FROM characters WHERE rowid = last_insert_rowid();";
             using (var conn = Open())
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = @"UPDATE characters SET delete_flag = 1, updated_at = CURRENT_TIMESTAMP
+                cmd.CommandText = @"UPDATE characters SET delete_flag = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                                     WHERE character_id = @id;";
                 cmd.Parameters.AddWithValue("@id", characterId);
                 cmd.ExecuteNonQuery();

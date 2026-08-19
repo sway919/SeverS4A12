@@ -822,15 +822,15 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
-            var slotIndex = body[0];
-            var nameLen = BitConverter.ToInt32(body, 1);
+            var slotIndex =  BitConverter.ToInt16(body);
+            var nameLen = BitConverter.ToInt32(body, 2);
             if (nameLen <= 0 || nameLen > 30 || 5 + nameLen > body.Length)
             {
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0006, new byte[] { 0x02 }));
                 return;
             }
 
-            var name = Encoding.UTF8.GetString(body, 5, nameLen);
+            var name = Encoding.UTF8.GetString(body, 6, nameLen);
             var accountId = session.Account?.AccountId ?? 1;
 
             var list = _characterRepository.ListByAccount(accountId);
@@ -841,7 +841,8 @@ namespace DfoServer.Network.Handlers
             }
 
             var target = list[slotIndex];
-            if (!NameBytesEqual(target.Name, Encoding.UTF8.GetBytes(name)))
+            var nameDb = Encoding.UTF8.GetString(target.Name);
+            if (!name .Equals(nameDb))
             {
                 FileLogger.Log($"[{ProtocolName}] DELETE_CHARACTER: name mismatch slot={slotIndex} expected='{target.DisplayName}' got='{name}'");
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0006, new byte[] { 0x15 }));
