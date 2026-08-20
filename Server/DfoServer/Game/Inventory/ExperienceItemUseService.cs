@@ -182,6 +182,97 @@ namespace DfoServer.Game.Inventory
                                         skillBookPlan.Detail);
                                 }
 
+                                if (skillPointBook.ResetsTp)
+                                {
+                                    var reset = new TpSkillResetService(_progressRepository)
+                                        .ApplyInTransaction(
+                                            connection,
+                                            transaction,
+                                            characterId,
+                                            character.Job,
+                                            character.Level,
+                                            character.BonusSp,
+                                            character.BonusTp,
+                                            character.GrowType);
+                                    if (!reset.Success)
+                                    {
+                                        return Reject(
+                                            ExperienceItemUseStatus.NotApplicable,
+                                            resolvedItemId,
+                                            reset.Detail ?? "TP reset was not applicable");
+                                    }
+
+                                    if (!InventoryDeleteService.TryConsumeFromSlot(
+                                            inventory,
+                                            listType,
+                                            slotIndex,
+                                            resolvedItemId,
+                                            1,
+                                            out var resetBookDelete)
+                                        || !resetBookDelete.Success
+                                        || resetBookDelete.DeletedCount != 1)
+                                    {
+                                        return Reject(
+                                            ExperienceItemUseStatus.ConsumeFailed,
+                                            resolvedItemId,
+                                            "inventory deduction failed");
+                                    }
+
+                                    sourceConsumed = true;
+                                    var consumedResetBook = BuildConsumedMutation(
+                                        listType,
+                                        slotIndex,
+                                        sourceSnapshot,
+                                        resetBookDelete);
+                                    if (!InventoryPersistenceService.SaveDirtyInTransaction(
+                                            connection,
+                                            transaction,
+                                            lease))
+                                    {
+                                        RestoreConsumedSource(
+                                            inventory,
+                                            listType,
+                                            slotIndex,
+                                            sourceSnapshot);
+                                        sourceConsumed = false;
+                                        return Reject(
+                                            ExperienceItemUseStatus.PersistenceFailed,
+                                            resolvedItemId,
+                                            "inventory persistence failed");
+                                    }
+
+                                    var resetBookGrowthExp = character.Level >= ExpTableProvider.MaxLevel
+                                        ? GrowthCapsuleProgressRepository.LoadTotalExp(
+                                            connection,
+                                            transaction,
+                                            accountId)
+                                        : 0;
+                                    var resetBookResult = new ExperienceItemUseResult
+                                    {
+                                        Status = ExperienceItemUseStatus.Success,
+                                        AccountId = accountId,
+                                        ItemTemplateId = resolvedItemId,
+                                        IsSkillPointBook = true,
+                                        IsTpResetBook = true,
+                                        ResetTpSkillCount = reset.ResetSkillCount,
+                                        ConsumedItem = consumedResetBook,
+                                        PreviousLevel = character.Level,
+                                        NewLevel = character.Level,
+                                        PreviousExp = character.Exp,
+                                        NewExp = character.Exp,
+                                        TotalGrowthCapsuleExp = resetBookGrowthExp,
+                                        SyncedSkills = reset.Skills,
+                                        SkillPoints = SkillStateService.GetProtocolState(
+                                            reset.Skills,
+                                            reset.Points),
+                                    };
+
+                                    transaction.Commit();
+                                    inventory.ClearDirtyState();
+                                    sourceConsumed = false;
+                                    return resetBookResult;
+                                }
+
                                 var newBonusSp = (long)character.BonusSp + skillPointBook.GrantedSp;
                                 var newBonusTp = (long)character.BonusTp + skillPointBook.GrantedTp;
                                 if (newBonusSp > int.MaxValue || newBonusTp > int.MaxValue)

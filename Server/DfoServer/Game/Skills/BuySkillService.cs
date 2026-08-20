@@ -33,6 +33,9 @@ namespace DfoServer.Game.Skills
         public bool ConsumedForgetRiverWater;
         public short ConsumedForgetRiverWaterSlot = -1;
         public InventoryMutationResult ConsumedForgetRiverWaterItem;
+        public bool ConsumedTpResetBook;
+        public short ConsumedTpResetBookSlot = -1;
+        public InventoryMutationResult ConsumedTpResetBookItem;
     }
 
     public static class BuySkillService
@@ -57,6 +60,124 @@ namespace DfoServer.Game.Skills
             if (plan.Result.Success)
                 repo.SaveSkillProgress(cid, plan.Snapshot);
             return plan.Result;
+        }
+
+        // TP 初始化书的客户端流程最终仍提交 BUY_SKILL，
+        // 但不会发送 INCREASE_STATUS。仅 TP 变更时使用 1206/1253 作为保存凭证，
+        // 避免把 TP 初始化书误当成普通的遗忘河之水。
+        internal static BuySkillResult ExecuteWithTpResetBook(
+            InventoryService inventory,
+            SqliteCharacterProgressRepository repo,
+            int cid,
+            int accountId,
+            int job,
+            int skillTree,
+            IList<BuySkillEntry> entries,
+            int bonusSp = 0,
+            byte level = 1,
+            int bonusTp = 0,
+            byte growType = 0)
+        {
+            if (!IsTpOnlyRequest(job, entries))
+            {
+                return new BuySkillResult
+                {
+                    Success = false,
+                    SkillTree = (byte)skillTree,
+                    ErrorCode = 3,
+                };
+            }
+
+            Characters.CharacterStatComputer.DecodeGrowType(
+                growType,
+                out var firstGrow,
+                out var secondGrow);
+            var plan = BuildExecutionPlan(
+                repo.LoadSkills(cid),
+                repo.ConnectionString,
+                accountId,
+                job,
+                skillTree,
+                entries,
+                bonusSp,
+                level,
+                bonusTp,
+                firstGrow,
+                secondGrow,
+                unlimitedPoints: false);
+            if (!plan.Result.Success)
+                return plan.Result;
+
+            if (!plan.HasEffectiveRefund)
+            {
+                repo.SaveSkillProgress(cid, plan.Snapshot);
+                return plan.Result;
+            }
+
+            if (!TryConsumeTpResetBook(inventory, out var consumed, out var itemId))
+            {
+                plan.Result.Success = false;
+                plan.Result.ErrorCode = 3;
+                return plan.Result;
+            }
+
+            repo.SaveSkillProgress(cid, plan.Snapshot);
+            plan.Result.ConsumedTpResetBook = true;
+            plan.Result.ConsumedTpResetBookSlot = consumed.SlotIndex;
+            plan.Result.ConsumedTpResetBookItem = new InventoryMutationResult
+            {
+                ListType = InventoryListType.Main,
+                SlotIndex = consumed.SlotIndex,
+                ItemTemplateId = itemId,
+                RemainingStackCount = consumed.RemainingCount,
+                InstanceValue = consumed.RemainingCount,
+                RequestedCount = 1,
+                AppliedCount = (short)Math.Min(
+                    short.MaxValue,
+                    consumed.ConsumedCount),
+            };
+            return plan.Result;
+        }
+
+        internal static bool IsTpOnlyRequest(int job, IList<BuySkillEntry> entries)
+        {
+            if (entries == null || entries.Count == 0)
+                return false;
+
+            foreach (var entry in entries)
+            {
+                var definition = SkillDataProvider.GetSkill(job, entry.SkillIndex);
+                if (definition != null && !definition.IsTpSkill)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryConsumeTpResetBook(
+            InventoryService inventory,
+            out InventoryMainItemConsumeResult consumed,
+            out int itemId)
+        {
+            consumed = null;
+            itemId = 0;
+            if (inventory == null)
+                return false;
+
+            // 1206 为常规 TP 初始化书，1253 为活动/事件版本。
+            foreach (var candidate in new[] { 1206, 1253 })
+            {
+                if (inventory.TryConsumeMainItem(candidate, 1, out var result)
+                    && result != null
+                    && result.Success)
+                {
+                    consumed = result;
+                    itemId = candidate;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         internal static BuySkillResult ExecuteWithRefundConsumable(

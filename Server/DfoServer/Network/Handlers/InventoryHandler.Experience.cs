@@ -123,7 +123,7 @@ namespace DfoServer.Network.Handlers
             if (result.IsSkillPointBook)
             {
                 FileLogger.Log(
-                    $"[{ProtocolName}] INCREASE_STATUS skill-point-book: item={result.ItemTemplateId} slot={request.SlotIndex} remaining={result.ConsumedItem?.RemainingStackCount ?? 0} grantSp={result.GrantedSp} grantTp={result.GrantedTp}");
+                    $"[{ProtocolName}] INCREASE_STATUS skill-point-book: item={result.ItemTemplateId} slot={request.SlotIndex} remaining={result.ConsumedItem?.RemainingStackCount ?? 0} grantSp={result.GrantedSp} grantTp={result.GrantedTp} tpReset={result.IsTpResetBook} resetSkills={result.ResetTpSkillCount}");
             }
             else
             {

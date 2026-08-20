@@ -320,8 +320,23 @@ namespace DfoServer.Network.Handlers
                         {
                             lock (lease.SyncRoot)
                             {
-                                result = Game.Skills.BuySkillService
-                                    .ExecuteWithRefundConsumable(
+                                // TP 初始化书保存流程也提交 BUY_SKILL；
+                                // 仅含 TP 技能的请求优先消耗 1206/1253，
+                                // 普通技能重置仍使用遗忘河之水(3)。
+                                result = Game.Skills.BuySkillService.IsTpOnlyRequest(job, entries)
+                                    ? Game.Skills.BuySkillService.ExecuteWithTpResetBook(
+                                        lease.Inventory,
+                                        repo,
+                                        cid,
+                                        session.Account?.AccountId ?? 0,
+                                        job,
+                                        skillTree,
+                                        entries,
+                                        rec?.BonusSp ?? 0,
+                                        rec?.Level ?? (byte)1,
+                                        rec?.BonusTp ?? 0,
+                                        rec?.GrowType ?? 0)
+                                    : Game.Skills.BuySkillService.ExecuteWithRefundConsumable(
                                         lease.Inventory,
                                         repo,
                                         cid,
@@ -360,6 +375,21 @@ namespace DfoServer.Network.Handlers
                             session,
                             result.ConsumedForgetRiverWaterItem.ListType,
                             result.ConsumedForgetRiverWaterItem.SlotIndex);
+                    }
+                    if (result != null &&
+                        result.Success &&
+                        result.ConsumedTpResetBook &&
+                        result.ConsumedTpResetBookItem != null)
+                    {
+                        await _refresh.SendUpdateItemList(
+                            session,
+                            result.ConsumedTpResetBookItem.ListType,
+                            result.ConsumedTpResetBookItem.SlotIndex);
+                        FileLogger.Log(
+                            $"[SkillHandler] BUY_SKILL TP reset book consumed: " +
+                            $"char={cid} item={result.ConsumedTpResetBookItem.ItemTemplateId} " +
+                            $"slot={result.ConsumedTpResetBookItem.SlotIndex} " +
+                            $"remaining={result.ConsumedTpResetBookItem.RemainingStackCount}");
                     }
                 }
                 catch (Exception ex) { FileLogger.Log($"[SkillHandler] BUY_SKILL failed: {ex}"); }

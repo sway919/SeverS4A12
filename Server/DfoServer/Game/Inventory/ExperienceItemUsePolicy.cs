@@ -33,6 +33,8 @@ namespace DfoServer.Game.Inventory
         internal int AccountId { get; set; }
         internal int ItemTemplateId { get; set; }
         internal bool IsSkillPointBook { get; set; }
+        internal bool IsTpResetBook { get; set; }
+        internal int ResetTpSkillCount { get; set; }
         internal InventoryMutationResult ConsumedItem { get; set; }
         internal byte PreviousLevel { get; set; }
         internal byte NewLevel { get; set; }
