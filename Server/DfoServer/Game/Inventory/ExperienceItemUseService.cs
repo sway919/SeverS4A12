@@ -117,6 +117,14 @@ namespace DfoServer.Game.Inventory
                     var skillPointBook = SkillPointBookDataProvider.Resolve(resolvedItemId);
                     if (!definition.IsExperienceLike && !skillPointBook.IsSkillPointBook)
                     {
+                        // 旧版经验书没有状态增长标签，改用经过严格白名单校验的兼容解析器。
+                        var legacyDefinition = LegacyExperienceBookDataProvider.Resolve(resolvedItemId);
+                        if (legacyDefinition.IsExperienceLike)
+                            definition = legacyDefinition;
+                    }
+
+                    if (!definition.IsExperienceLike)
+                    {
                         return Reject(
                             ExperienceItemUseStatus.UnsupportedDefinition,
                             resolvedItemId,
