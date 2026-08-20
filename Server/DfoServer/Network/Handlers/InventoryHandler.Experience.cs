@@ -132,6 +132,81 @@ namespace DfoServer.Network.Handlers
             }
         }
 
+        public async Task Handle_REQUEST_EVENT_SERVER_LEVEL_UP(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            byte[] body)
+        {
+            var packetType = (ushort)CmdPacketType.REQUEST_EVENT_SERVER_LEVEL_UP;
+            if (session == null)
+                return;
+
+            if (session.Player == null
+                || !EventServerLevelUpRequest.TryParse(body, out var request))
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    packetType,
+                    CommonPacketBodyBuilder.BuildCmdError(1)));
+                FileLogger.Log(
+                    $"[{ProtocolName}] REQUEST_EVENT_SERVER_LEVEL_UP rejected malformed body({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")}");
+                return;
+            }
+
+            var (characterId, accountId) = ResolveOwner(session);
+            ExperienceItemUseResult result;
+            try
+            {
+                result = _experienceItemUseService.UseBySlot(
+                    characterId,
+                    accountId,
+                    InventoryListType.Main,
+                    request.SlotIndex,
+                    session.Player.CurrentRun == null
+                        ? ExperienceItemUseLocation.Town
+                        : ExperienceItemUseLocation.Dungeon);
+            }
+            catch (Exception ex)
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    packetType,
+                    CommonPacketBodyBuilder.BuildCmdError(1)));
+                FileLogger.Log(
+                    $"[{ProtocolName}] REQUEST_EVENT_SERVER_LEVEL_UP failed: cid={characterId} slot={request.SlotIndex} error={ex}");
+                return;
+            }
+
+            if (!result.Success)
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    packetType,
+                    CommonPacketBodyBuilder.BuildCmdError(
+                        GetExperienceItemFailureErrorCode(result.Status))));
+                FileLogger.Log(
+                    $"[{ProtocolName}] REQUEST_EVENT_SERVER_LEVEL_UP rejected: status={result.Status} item={result.ItemTemplateId} slot={request.SlotIndex} state={request.State} detail={result.Detail}");
+                return;
+            }
+
+            // 升级券使用独立的 0x01A2 指令；字段布局集中在专用构造器中冻结，
+            // 避免协议尾部被普通经验书逻辑误改。
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                packetType,
+                EventServerLevelUpAckBuilder.BuildSuccess(request.SlotIndex)));
+            session.Player.Level = result.NewLevel;
+            session.Player.Exp = result.NewExp;
+            await RefreshExperienceSourceSlotAsync(
+                session,
+                characterId,
+                request.SlotIndex,
+                "level-up-ticket");
+            await _experienceItemNotifications.SendAsync(session, result);
+            FileLogger.Log(
+                $"[{ProtocolName}] REQUEST_EVENT_SERVER_LEVEL_UP: OK item={result.ItemTemplateId} slot={request.SlotIndex} state={request.State} remaining={result.ConsumedItem?.RemainingStackCount ?? 0} level={result.PreviousLevel}->{result.NewLevel} exp={result.PreviousExp}->{result.NewExp}");
+        }
+
         private static Task SendIncreaseStatusFailureAsync(
             EnhancedClientSession session,
             byte errorCode)

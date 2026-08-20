@@ -525,6 +525,9 @@ namespace DfoServer.Network
             d[0x00CA] = _inventoryHandler.Handle_DISJOINT_AVATAR;                  //202 时装分解
             d[0x001B] = _lotteryItemHandler.HandleUseLotteryItem;                 //27
             d[(ushort)CmdPacketType.INCREASE_STATUS] = _inventoryHandler.Handle_ENUM_CMDPACKET_INCREASE_STATUS;
+            // 升级券使用客户端专用的事件升级请求，不会进入普通经验书的 0x001E 路径。
+            d[(ushort)CmdPacketType.REQUEST_EVENT_SERVER_LEVEL_UP] =
+                _inventoryHandler.Handle_REQUEST_EVENT_SERVER_LEVEL_UP;
             d[0x002C] = _inventoryHandler.Handle_ENUM_CMDPACKET_USE_STACKABLE;
             d[0x00CC] = _inventoryHandler.Handle_ENUM_CMDPACKET_PURIFY_ITEM;
             d[0x00CD] = _inventoryHandler.Handle_ENUM_CMDPACKET_INVEST_ITEM_AMPLIFY_OPTION;

@@ -461,6 +461,8 @@ WHERE character_id=@cid
                                 Status = ExperienceItemUseStatus.Success,
                                 AccountId = accountId,
                                 ItemTemplateId = resolvedItemId,
+                                IsLevelUpTicket = definition.GrantKind
+                                    == ExperienceItemGrantKind.LevelUpRange,
                                 ConsumedItem = consumedItem,
                                 PreviousLevel = character.Level,
                                 NewLevel = grant.NewLevel,

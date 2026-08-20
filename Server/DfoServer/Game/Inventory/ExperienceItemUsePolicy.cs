@@ -32,6 +32,7 @@ namespace DfoServer.Game.Inventory
         internal ExperienceItemUseStatus Status { get; set; }
         internal int AccountId { get; set; }
         internal int ItemTemplateId { get; set; }
+        internal bool IsLevelUpTicket { get; set; }
         internal bool IsSkillPointBook { get; set; }
         internal InventoryMutationResult ConsumedItem { get; set; }
         internal byte PreviousLevel { get; set; }
@@ -120,7 +121,7 @@ namespace DfoServer.Game.Inventory
                     ExperienceItemUseStatus.LevelRestricted,
                     $"level={context.Level} allowed={definition.MinimumLevel}..{definition.MaximumLevel}");
 
-            var grantedExp = definition.CalculateGain(context.Level);
+            var grantedExp = definition.CalculateGain(context.Level, context.Exp);
             if (grantedExp == 0)
                 return Reject(
                     ExperienceItemUseStatus.NoExperienceGain,
