@@ -239,6 +239,7 @@ namespace DfoServer.SelfTests
                 channelExp: 3913,
                 growthContractExp: 15652,
                 monsterGrowthContractExp: MonsterGrowthBonus,
+                experiencePotionExp: 7777,
                 monsterExp: MonsterTotalExperience);
 
             const int MonsterGrowthBonusOffset = 17 + 18 * sizeof(int);
@@ -246,6 +247,7 @@ namespace DfoServer.SelfTests
             const int AvatarBonusOffset = 3 * sizeof(int);
             const int CreatureBonusOffset = 17 + 5 * sizeof(int);
             const int ChannelBonusOffset = 17 + 23 * sizeof(int);
+            const int ExperiencePotionBonusOffset = 17 + 1 * sizeof(int);
             const int MonsterTotalTailOffset = 214;
             var projectedAvatarBonus = BitConverter.ToInt32(
                 body,
@@ -285,6 +287,13 @@ namespace DfoServer.SelfTests
             Check(
                 "A14 0x0023 projects channel bonus in slot 24",
                 projectedChannelBonus == 3913,
+                ref failures);
+            var projectedExperiencePotionBonus = BitConverter.ToInt32(
+                body,
+                ExperiencePotionBonusOffset);
+            Check(
+                "A14 0x0023 projects experience potion bonus in slot two",
+                projectedExperiencePotionBonus == 7777,
                 ref failures);
             Check(
                 "A14 tail projects awarded kill total rather than an intermediate base",

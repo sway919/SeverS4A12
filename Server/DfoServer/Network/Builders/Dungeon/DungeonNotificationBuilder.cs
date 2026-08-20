@@ -359,6 +359,7 @@ namespace DfoServer.Network.Builders
             int blackDiamondExp = 0, int growthContractExp = 0,
             int monsterGrowthContractExp = 0, int adventureGroupExp = 0,
             int channelExp = 0,
+            int experiencePotionExp = 0,
             uint monsterExp = 0, int bossExp = 0, int championExp = 0, int superChampionExp = 0,
             int freeCardGold = 0, int freeCardItemId = 0, int freeCardItemCount = 0,
             int paidCardCost = 0)
@@ -374,7 +375,10 @@ namespace DfoServer.Network.Builders
             for (int i = 0; i < 25; i++)
             {
                 var value = 0;
-                if (i == 2) value = blackDiamondExp;       // 槽位3: 黑钻
+                // 槽位映射经实机标记法确认（2026-08-20）：
+                // i==0 活动额外经验，i==1 远古精灵的秘药，i==3 QQ网吧经验值，i==10 疲劳值燃烧。
+                if (i == 1) value = experiencePotionExp;  // 槽位2: 远古精灵的秘药
+                else if (i == 2) value = blackDiamondExp;       // 槽位3: 黑钻
                 else if (i == 5) value = creatureExp;       // 槽位6: 宠物通关奖励
                 else if (i == 7) value = adventureGroupExp; // 槽 8：冒险团通关经验
                 else if (i == 9) value = growthContractExp; // 槽位10: 成长之契约

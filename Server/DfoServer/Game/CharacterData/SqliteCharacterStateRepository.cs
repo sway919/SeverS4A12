@@ -748,13 +748,37 @@ ON CONFLICT(character_id) DO UPDATE SET
         {
             LoadFlags(characterId, snapshot);
 
-            var cooltime = _itemValue.LoadItemValueList(characterId, "cooltime");
+            // 冷却列表存的是到期 unix 秒，登录时换算成剩余秒（客户端按秒解释）并清掉过期行。
+            var nowUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var cooltime = _itemValue.LoadActiveCooldowns(characterId, nowUnixSeconds);
             snapshot.CooltimeItems.Clear();
-            snapshot.CooltimeItems.AddRange(cooltime);
+            foreach (var entry in cooltime)
+            {
+                // 共享冷却：同 [cooltime group] 的成员一并下发，客户端整组进入冷却。
+                foreach (var memberId in Inventory.StackableItemProvider.ResolveCooltimeGroupMembers(entry.ItemId))
+                {
+                    snapshot.CooltimeItems.Add(new ItemValueEntrySnapshot
+                    {
+                        ItemId = memberId,
+                        Value = entry.Value,
+                    });
+                }
+            }
 
-            var effect = _itemValue.LoadItemValueList(characterId, "effect");
+            // 效果列表（0x00AE）直接从未到期的秘药效果表生成，恢复客户端 buff 图标。
             snapshot.EffectItems.Clear();
-            snapshot.EffectItems.AddRange(effect);
+            if (Inventory.ExperienceBonusPotionService.TryGetActiveEffect(
+                    characterId,
+                    nowUnixSeconds,
+                    out var effectItemId,
+                    out var effectRemainingSec))
+            {
+                snapshot.EffectItems.Add(new ItemValueEntrySnapshot
+                {
+                    ItemId = effectItemId,
+                    Value = effectRemainingSec,
+                });
+            }
 
             snapshot.AchievementComplete = _achievement.LoadAchievementComplete(characterId);
 
