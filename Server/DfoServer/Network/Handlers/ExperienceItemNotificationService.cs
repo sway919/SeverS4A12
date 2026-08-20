@@ -80,6 +80,15 @@ namespace DfoServer.Network.Handlers
                     () => SendQuestListAsync(session));
             }
 
+            if (result.IsTpResetBook && result.SyncedSkills != null)
+            {
+                // 0x0025 只刷新点数余额；0x0013 同步重置后的完整技能树。
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    0x0013,
+                    SkillInfoBodyBuilder.BuildFrom(result.SyncedSkills)));
+            }
+
             FileLogger.Log(
                 $"[GameProtocol] EXPERIENCE_ITEM_SYNC: cid={session.Player.CharacterId} item={result.ItemTemplateId} level={result.PreviousLevel}->{result.NewLevel} exp={result.PreviousExp}->{result.NewExp} honor={result.HonorExpGain} inDungeon={inDungeon}");
         }

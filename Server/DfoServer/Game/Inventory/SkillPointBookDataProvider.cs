@@ -10,16 +10,22 @@ namespace DfoServer.Game.Inventory
     {
         private sealed class KnownBook
         {
-            internal KnownBook(int grantedSp, int grantedTp, int etcVariant)
+            internal KnownBook(
+                int grantedSp,
+                int grantedTp,
+                int etcVariant,
+                SkillPointBookKind kind = SkillPointBookKind.Grant)
             {
                 GrantedSp = grantedSp;
                 GrantedTp = grantedTp;
                 EtcVariant = etcVariant;
+                Kind = kind;
             }
 
             internal int GrantedSp { get; }
             internal int GrantedTp { get; }
             internal int EtcVariant { get; }
+            internal SkillPointBookKind Kind { get; }
         }
 
         // 技能书没有统一的数值标签，只能按已核对过的 PVF 路径建立白名单。
@@ -32,6 +38,10 @@ namespace DfoServer.Game.Inventory
                 ["extention/test_book_skill1.stk"] = new KnownBook(5, 0, 8),
                 ["book_fskill1.stk"] = new KnownBook(0, 1, 8),
                 ["book_fskill2.stk"] = new KnownBook(0, 5, 8),
+                ["book_fskillreset.stk"] = new KnownBook(
+                    0, 0, 8, SkillPointBookKind.ResetTp),
+                ["book_fskillreset_event.stk"] = new KnownBook(
+                    0, 0, 8, SkillPointBookKind.ResetTp),
             };
 
         private static readonly HashSet<string> AllowedRootTags
@@ -62,9 +72,11 @@ namespace DfoServer.Game.Inventory
             if (stackable?.Root == null)
                 return Reject(result, "skill-point book PVF definition is unavailable");
 
-            var expectedName = known.GrantedSp > 0
-                ? $"SP+{known.GrantedSp}技能书"
-                : $"TP+{known.GrantedTp}技能书";
+            var expectedName = known.Kind == SkillPointBookKind.ResetTp
+                ? "TP初始化书"
+                : known.GrantedSp > 0
+                    ? $"SP+{known.GrantedSp}技能书"
+                    : $"TP+{known.GrantedTp}技能书";
             if (!string.Equals(
                     NormalizeText(stackable.Name),
                     expectedName,
@@ -80,12 +92,22 @@ namespace DfoServer.Game.Inventory
                     $"skill-point book is not a variant-{known.EtcVariant} [etc] stackable");
             }
 
-            if (!string.Equals(
+            var hasReviewedSoundMarker = known.Kind == SkillPointBookKind.ResetTp
+                ? string.Equals(
+                    NormalizeText(stackable.GetStringValue("move wav")),
+                    "BOOK_TOUCH",
+                    StringComparison.OrdinalIgnoreCase)
+                : string.Equals(
                     NormalizeText(stackable.GetStringValue("use wav")),
                     "SP_UP_ITEM",
-                    StringComparison.OrdinalIgnoreCase))
+                    StringComparison.OrdinalIgnoreCase);
+            if (!hasReviewedSoundMarker)
             {
-                return Reject(result, "skill-point book is missing the SP_UP_ITEM use marker");
+                return Reject(
+                    result,
+                    known.Kind == SkillPointBookKind.ResetTp
+                        ? "TP reset book is missing the BOOK_TOUCH marker"
+                        : "skill-point book is missing the SP_UP_ITEM use marker");
             }
 
             var effects = stackable.StatusIncreases;
@@ -117,6 +139,7 @@ namespace DfoServer.Game.Inventory
 
             result.GrantedSp = known.GrantedSp;
             result.GrantedTp = known.GrantedTp;
+            result.Kind = known.Kind;
             result.MinimumLevel = minimumLevel;
             result.MaximumLevel = maximumLevel;
             result.AbsoluteExpirationUnixTime = expiration.AbsoluteExpirationUnixTime;
