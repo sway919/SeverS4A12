@@ -502,6 +502,13 @@ namespace DfoServer.Network.Handlers.Dungeon
                     return false;
                 }
 
+                // 结算主经验可能升级：向把 self 加为好友的人重推好友列表（节点数据，不分频道）。
+                if (settlement.ExperienceGrant?.LeveledUp == true)
+                {
+                    await DfoServer.Game.Friends.UnitedFriendSystem
+                        .NotifyFriendListInfoChanged(session, _svc.Sessions);
+                }
+
                 if (settlement.IsTowerOfDespair
                     && !await ExecuteSettlementEffectAsync(
                         session,
@@ -735,6 +742,12 @@ namespace DfoServer.Network.Handlers.Dungeon
                 $"[DungeonHandler] settlement score experience adjustment: " +
                 $"instance={run.PartyDungeonInstanceId} run={run.RunId} " +
                 $"rank={rankPoint} scoreBonus={scoreBonus} delta={delta}");
+            // 结算分数调整经验可能升级：向把 self 加为好友的人重推好友列表（节点数据，不分频道）。
+            if (adjustmentGrant?.LeveledUp == true)
+            {
+                await DfoServer.Game.Friends.UnitedFriendSystem
+                    .NotifyFriendListInfoChanged(session, _svc.Sessions);
+            }
             return true;
         }
 

@@ -732,6 +732,11 @@ CREATE TABLE IF NOT EXISTS character_daily_challenge_special_progress_events (
 );
 CREATE INDEX IF NOT EXISTS idx_daily_challenge_special_events_character
     ON character_daily_challenge_special_progress_events(character_id, created_at);")),
+
+            // 好友关系表 united_friend_relations 由 item_schema.sql 统一建表：每个库初始化都先跑
+            // item_schema.sql(CREATE TABLE IF NOT EXISTS 幂等)，键对齐 characters.name 的 BINARY
+            // 大小写敏感(Abc/abc 是两个不同角色)。不在迁移链里重复建表——新库走 schema，旧库不迁移。
+            // (历史: v57/v58 曾在此建表/重建为 BINARY, 已删除——新库 schema 直接建 BINARY 表。)
         };
 
         internal static int LatestVersion =>

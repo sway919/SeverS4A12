@@ -26,10 +26,20 @@ namespace DfoServer.Network.Builders
             if (record == null)
                 throw new ArgumentNullException(nameof(record));
 
+            return BuildNotificationBody(record, (ushort)record.CharacterId);
+        }
+
+        public static byte[] BuildNotificationBody(
+            CharacterRecord record,
+            ushort onlineUserId)
+        {
+            if (record == null)
+                throw new ArgumentNullException(nameof(record));
+
             var writer = new GamePacketWriter();
             writer.WriteByte(0);
             writer.WriteUInt16(1);
-            writer.WriteUInt16((ushort)record.CharacterId);
+            writer.WriteUInt16(onlineUserId);
             writer.WriteDstr(record.Name);
             writer.WriteBytes(BuildRemainingBytes(record));
             return writer.ToArray();

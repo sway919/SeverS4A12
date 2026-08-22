@@ -456,6 +456,21 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
             }
             session.Player.UserState = 0x00;
+            // 死亡复活回城：UserState 归位(0x00)，向同频道把 self 加为好友的人推 USERINFO
+            // 刷新好友面板状态图标（否则一直显示"繁忙"直到下线重登）。
+            if (_svc?.Sessions != null)
+            {
+                try
+                {
+                    await DfoServer.Game.Friends.UnitedFriendSystem
+                        .NotifyUserStateChanged(session, _svc.Sessions);
+                }
+                catch (Exception stateEx)
+                {
+                    FileLogger.Log(
+                        $"[{DungeonSharedServices.ProtocolLogName}] DEATH_RESPAWN NotifyUserStateChanged 失败: {stateEx.Message}");
+                }
+            }
 
             var snapshot = TownAreaNotificationBuilder.CreateCurrentSnapshot(session.Player);
 

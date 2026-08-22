@@ -2,6 +2,7 @@ using DfoServer.Game.Accounts;
 using DfoServer.Game.CharacterData;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
+using DfoServer.Game.Friends;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Session;
 using DfoServer.GameWorld;
@@ -10,6 +11,7 @@ using DfoServer.Network.Builders;
 using DfoServer.Network.Parsers.Town;
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace DfoServer.Network.Handlers
@@ -222,6 +224,25 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
+            // 幽灵分身修复：self 从旧区域切走，旧区域客户端收不到任何通知 → 分身冻结残留
+            // （所有玩家通用）。更新区域前对旧区域广播 USER_LEAVE 清分身；对好友 leave 后
+            // 补 USERINFO 恢复图标（此刻 UserState=0x00 在线，图标保持绿）。回城时
+            // ApplyTownReturnAnchor 已把区域设为锚点（旧==新）自动跳过，不重复发包。
+            if (session.Player.CurTownId != gotoTownId
+                || session.Player.CurAreaId != gotoAreaId)
+            {
+                try
+                {
+                    await UnitedFriendSystem.NotifyAreaLeaveAsync(session, _sessions);
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Log(
+                        $"[{ProtocolName}] SET_USER_AREA 区域离开失败 "
+                        + $"cid={session.Player.CharacterId}: {ex.Message}");
+                }
+            }
+
             session.Player.CurTownId = gotoTownId;
             session.Player.CurAreaId = gotoAreaId;
             session.Player.CurPosX = gotoPosX;
@@ -373,14 +394,67 @@ namespace DfoServer.Network.Handlers
             }
         }
 
-        /// <summary>联机同屏: 断线/离开区域时通知同区域其它玩家移除该分身(USER_LEAVE 0x0006)。</summary>
+        /// <summary>
+        /// 联机同屏：断线/离开区域时通知同区域其它玩家移除该分身(USER_LEAVE 0x0006)。
+        /// 只对非好友广播：好友图标由好友系统 USERINFO/USER_LEAVE 显式驱动，此处若也发给
+        /// 好友，区域离开会误触发其图标转灰（抑制的猜测背景见设计文档 §1.2 / §4.8）。
+        /// </summary>
         public async Task NotifyLeaveAsync(EnhancedClientSession session)
         {
             if (_sessions == null || session?.Player == null || session.Player.CharacterId <= 0)
                 return;
-            await _sessions.BroadcastToAreaAsync(
-                session.Player.CurTownId, session.Player.CurAreaId, session.Player.CharacterId,
-                GamePacketEnvelopeBuilder.Build(0x00, 0x0006, TownAreaNotificationBuilder.BuildUserLeave(session.Player.UserId)));
+
+            var leaverName = DecodeName(session.Player.Name);
+            if (string.IsNullOrEmpty(leaverName))
+                return;
+
+            var leavePacket = GamePacketEnvelopeBuilder.Build(
+                0x00, 0x0006,
+                TownAreaNotificationBuilder.BuildUserLeave(session.Player.UserId));
+
+            var targets = _sessions.GetSessionsInArea(
+                session.Player.CurTownId,
+                session.Player.CurAreaId,
+                session.Player.CharacterId);
+            if (targets.Count == 0)
+                return;
+
+            var tasks = new List<Task>(targets.Count);
+            foreach (var t in targets)
+            {
+                var tName = DecodeName(t.Player?.Name);
+                // 好友不在此广播范围：图标由好友系统显式驱动，避免区域离开误触发转灰。
+                if (string.IsNullOrEmpty(tName)
+                    || UnitedFriendSystem.IsFriend(tName, leaverName))
+                    continue;
+
+                tasks.Add(SendLeaveBestEffortAsync(t, leavePacket));
+            }
+            await Task.WhenAll(tasks);
+        }
+
+        private async Task SendLeaveBestEffortAsync(
+            EnhancedClientSession session,
+            byte[] packet)
+        {
+            try
+            {
+                await session.SendPacketAsync(packet);
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] NotifyLeaveAsync 发送失败 "
+                    + $"cid={session.Player?.CharacterId ?? 0}: {ex.Message}");
+            }
+        }
+
+        private string DecodeName(byte[] nameBytes)
+        {
+            if (nameBytes == null)
+                return null;
+            var name = Encoding.UTF8.GetString(nameBytes).TrimEnd('\0');
+            return string.IsNullOrWhiteSpace(name) ? null : name;
         }
 
         public async Task Handle_ENUM_CMDPACKET_FINISH_LOADING(EnhancedClientSession session, GamePacketHeader header, byte[] body)
@@ -729,6 +803,7 @@ namespace DfoServer.Network.Handlers
                 returnAnchor,
                 session.ListenerPort);
             session.Player.UserState = 0x00;
+            await UnitedFriendSystem.NotifyUserStateChanged(session, _sessions);
             await SetUserAreaCoreAsync(
                 session,
                 BuildTownAreaProjectionBody(session.Player),
@@ -751,6 +826,7 @@ namespace DfoServer.Network.Handlers
                 selection.ReturnAnchor,
                 session.ListenerPort);
             session.Player.UserState = 0x00;
+            await UnitedFriendSystem.NotifyUserStateChanged(session, _sessions);
             await SetUserAreaCoreAsync(
                 session,
                 BuildTownAreaProjectionBody(session.Player),

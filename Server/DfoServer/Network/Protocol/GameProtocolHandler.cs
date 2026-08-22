@@ -3,6 +3,7 @@ using DfoServer.Game.Appearance;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.ExpertJob;
+using DfoServer.Game.Friends;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.KnightShield;
 using DfoServer.Game.Lottery;
@@ -66,6 +67,7 @@ namespace DfoServer.Network
         private readonly PvpChannelInfoHandler _pvpChannelInfoHandler;
         private readonly PvpRoomHandler _pvpRoomHandler;
         private readonly Dictionary<ushort, Func<EnhancedClientSession, GamePacketHeader, byte[], Task>> _cmdDispatch;
+        private readonly ISessionDirectory _sessionDirectory;
 
         public override string ProtocolName => "GameProtocol";
 
@@ -75,6 +77,7 @@ namespace DfoServer.Network
             PartyUdpRelay udpRelay = null,
             PartyUdpRelay pvpUdpRelay = null)
         {
+            _sessionDirectory = sessionDirectory;
             var databasePath = ServerPaths.DatabasePath;
             var schemaFilePath = ServerPaths.SchemaFilePath;
 
@@ -524,7 +527,18 @@ namespace DfoServer.Network
             d[0x001A] = _inventoryHandler.Handle_ENUM_CMDPACKET_DISJOINT_ITEM;     //26 系统分解
             d[0x00CA] = _inventoryHandler.Handle_DISJOINT_AVATAR;                  //202 时装分解
             d[0x001B] = _lotteryItemHandler.HandleUseLotteryItem;                 //27
-            d[(ushort)CmdPacketType.INCREASE_STATUS] = _inventoryHandler.Handle_ENUM_CMDPACKET_INCREASE_STATUS;
+            d[(ushort)CmdPacketType.INCREASE_STATUS] = async (s, h, b) =>
+            {
+                // 经验道具(INCREASE_STATUS)可能升级：前后比较 Level，
+                // 升级则向把 self 加为好友的人重推好友列表（节点数据，不分频道）。
+                var prevLevel = s.Player?.Level;
+                await _inventoryHandler.Handle_ENUM_CMDPACKET_INCREASE_STATUS(s, h, b);
+                if (s.Player != null && s.Player.Level != prevLevel)
+                {
+                    await UnitedFriendSystem.NotifyFriendListInfoChanged(
+                        s, _sessionDirectory);
+                }
+            };
             d[0x002C] = _inventoryHandler.Handle_ENUM_CMDPACKET_USE_STACKABLE;
             d[0x00CC] = _inventoryHandler.Handle_ENUM_CMDPACKET_PURIFY_ITEM;
             d[0x00CD] = _inventoryHandler.Handle_ENUM_CMDPACKET_INVEST_ITEM_AMPLIFY_OPTION;
@@ -850,10 +864,24 @@ namespace DfoServer.Network
             d[0x0022] = async (s, h, b) => //34
             {
                 if (s.GameSession != null)
+                {
+                    var prevLevel = s.Player?.Level;
+                    var prevGrowType = s.Player?.GrowType;
                     await s.GameSession.QuestManager.HandleFinishQuestAsync(
                         h.type,
                         b,
                         s.SessionId);
+                    // Quest 完成可能升级(ProjectFinishedQuestAsync:93)或转职(:411)。
+                    // 等级/职业变化 → 向把 self 加为好友的人重推好友列表
+                    // （节点数据，跨频道可见，不分频道）。
+                    if (s.Player != null
+                        && (s.Player.Level != prevLevel
+                            || s.Player.GrowType != prevGrowType))
+                    {
+                        await UnitedFriendSystem.NotifyFriendListInfoChanged(
+                            s, _sessionDirectory);
+                    }
+                }
             };
             d[0x01FB] = (s, h, b) =>
             {
@@ -963,6 +991,15 @@ namespace DfoServer.Network
                 _pvpRoomHandler.HandleConnectP2pPvp;
             d[PvpRoomHandler.PvpRequestFightCommandType] =
                 _pvpRoomHandler.HandlePvpRequestFight;
+            // 好友协议处理器聚合在好友系统主文件 UnitedFriendSystem，此处仅路由（见设计文档 §7.4）。
+            d[(ushort)CmdPacketType.ADD_UNITED_SERVER_FRIEND] =
+                (session, header, body) =>
+                    UnitedFriendSystem.HandleAddUnitedServerFriend(
+                        session, header, body, _sessionDirectory);   // 290 添加好友
+            d[(ushort)CmdPacketType.DELETE_UNITED_SERVER_FRIEND] =
+                (session, header, body) =>
+                    UnitedFriendSystem.HandleDeleteUnitedServerFriend(
+                        session, header, body, _sessionDirectory);   // 291 删除好友
         }
 
         private void RegisterExpertJobHandlers(Dictionary<ushort, Func<EnhancedClientSession, GamePacketHeader, byte[], Task>> d)

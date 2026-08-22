@@ -817,7 +817,11 @@ namespace DfoServer.Network.Handlers.Dungeon
                 if (!session.Player.IsCurrentDungeonRun(identity))
                     return generatedDrops;
                 if (grant.LeveledUp)
+                {
                     await _services.ProgressNotifications.SendInDungeonLevelUpFollowups(session);
+                    await DfoServer.Game.Friends.UnitedFriendSystem
+                        .NotifyFriendListInfoChanged(session, _services.Sessions);
+                }
             }
 
             return generatedDrops;

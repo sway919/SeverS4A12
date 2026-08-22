@@ -646,6 +646,8 @@ namespace DfoServer.Network.Handlers.Dungeon
             {
                 await _services.ProgressNotifications
                     .SendInDungeonLevelUpFollowups(session);
+                await DfoServer.Game.Friends.UnitedFriendSystem
+                    .NotifyFriendListInfoChanged(session, _services.Sessions);
             }
         }
 
