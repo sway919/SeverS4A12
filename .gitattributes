@@ -1,4 +1,0 @@
-# 仅 GameProtocolHandler.cs 在 HEAD(origin/main) 是混合行尾(358 CRLF + 638 LF, 历史遗留)。
-# 钉 -text 使其按原样入库, 配合按 HEAD 行尾重建工作区, 避免 MR 出现整文件行尾伪 diff。
-# 其余 C# 文件 HEAD 均为 LF, core.autocrlf=true 默认处理(checkout CRLF / add 转回 LF)即可。
-Server/DfoServer/Network/Protocol/GameProtocolHandler.cs -text
