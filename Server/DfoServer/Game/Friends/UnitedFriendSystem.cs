@@ -224,6 +224,16 @@ namespace DfoServer.Game.Friends
                         // USERINFO 只在同频道推：跨频道好友不注册场景实体。
                         if (IsSameChannel(self, s))
                         {
+                            // 0x0112 进入频道已把 node+0x54 置为真实频道，故补发
+                            // 0x0111 列表刷新把它归零（SendFriendListAsync 对同频道
+                            // 在线好友 channel 写 0）→ 同频道在线好友不显示频道文字；
+                            // 绿图标由下方 USERINFO 场景实体独立驱动，不受影响。
+                            var sName = GetPlayerName(s);
+                            await SendFriendListAsync(s, dir, GetFriends(sName));
+                            FileLogger.Log(
+                                $"[UnitedFriend] {sName} 同频道 → 0x0112 后补发 "
+                                + $"0x0111 列表刷新（同频道在线好友频道归零）");
+
                             var selfRecord = BuildUserInfoRecord(self.Player);
                             var selfBody = UserInfoSubtype0Builder.BuildNotificationBody(
                                 selfRecord, self.Player.UserId);
@@ -814,8 +824,9 @@ namespace DfoServer.Game.Friends
                     var nameBytes = Encoding.UTF8.GetBytes(name);
                     w.WriteByte(1);                    // 大区 sR=1
                     w.WriteUInt16(onlineByName.TryGetValue(name, out var os)
-                        ? ResolveChannel(os)
-                        : (ushort)0);                  // 频道（在线=真实频道, 离线=0）
+                        ? (IsSameChannel(self, os) ? (ushort)0 : ResolveChannel(os))
+                        : (ushort)0);
+                    // 频道：同频道在线=0（不显示频道文字）, 异频道在线=真实频道, 离线=0
                     w.WriteUInt32((uint)nameBytes.Length);
                     w.WriteBytes(nameBytes);           // name
 
