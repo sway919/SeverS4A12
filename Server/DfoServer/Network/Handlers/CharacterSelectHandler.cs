@@ -864,6 +864,19 @@ namespace DfoServer.Network.Handlers
                 _characterRepository.SoftDelete(target.CharacterId);
                 FileLogger.Log($"[{ProtocolName}] DELETE_CHARACTER: soft-deleted character_id={target.CharacterId} name='{name}'");
 
+                // 好友关系清理（best-effort）：角色删除后同步清 united_friend_relations 表
+                // 并通知把该角色加为好友的人刷新列表（subcmd=2 删节点+全量）。
+                // 失败只记日志，不影响删除结果与 ACK。
+                try
+                {
+                    await DfoServer.Game.Friends.UnitedFriendSystem
+                        .HandleCharacterDeletedAsync(name, _sessions);
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Log($"[{ProtocolName}] DELETE_CHARACTER friend cleanup failed: {ex.Message}");
+                }
+
                 var writer = new GamePacketWriter();
                 writer.WriteByte(0x00);
                 writer.WriteUInt16((ushort)target.CharacterId);

@@ -732,6 +732,22 @@ CREATE TABLE IF NOT EXISTS character_daily_challenge_special_progress_events (
 );
 CREATE INDEX IF NOT EXISTS idx_daily_challenge_special_events_character
     ON character_daily_challenge_special_progress_events(character_id, created_at);")),
+
+            // 好友关系表 united_friend_relations（UnitedFriendSystem，单向 A→B，见设计文档 §2.2）。
+            // 对齐"两处同步维护"规则：item_schema.sql（新库完整最终形态）+ 本迁移（旧库补建）。
+            // 注：SqliteDatabaseBootstrap.Initialize 对每个库无条件执行 item_schema.sql
+            // （CREATE ... IF NOT EXISTS 幂等），新/旧库初始化时都会建好友表，本迁移运行时实为空操作
+            // ——保留它一方面对齐设计文档/仓储注释引用的 v57，另一方面保证"结构变化走迁移"规则一致
+            // （本表未来若需改结构，从 v58 起沿迁移链演进）。
+            (57, "add_united_friend_relations 好友表", conn => ExecuteBatch(conn, @"
+CREATE TABLE IF NOT EXISTS united_friend_relations (
+    owner_name  TEXT NOT NULL,
+    friend_name TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (owner_name, friend_name)
+);
+CREATE INDEX IF NOT EXISTS idx_united_friend_relations_friend
+    ON united_friend_relations(friend_name);")),
         };
 
         internal static int LatestVersion =>

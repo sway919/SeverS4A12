@@ -1,5 +1,6 @@
 using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
+using DfoServer.Game.Friends;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Game.Session;
@@ -148,6 +149,22 @@ namespace DfoServer.Network.Handlers
 
                         if (ownsGeneration)
                         {
+                            // 好友下线推送：ownsGeneration==true=真正离线，会话已从目录注销，
+                            // 向仍在线的好友推 USER_LEAVE 移除实体 → 图标变灰。失败仅记日志。
+                            try
+                            {
+                                await UnitedFriendSystem
+                                    .NotifyPlayerDisconnected(
+                                        session,
+                                        _sessionDirectory);
+                            }
+                            catch (Exception ex)
+                            {
+                                FileLogger.Log(
+                                    $"[{ProtocolName}] friend offline-notify " +
+                                    $"failed cid={characterId}: {ex}");
+                            }
+
                             try
                             {
                                 await _townHandler.NotifyLeaveAsync(session);
@@ -395,6 +412,22 @@ namespace DfoServer.Network.Handlers
                     await PetCreatureRuntimeService.BeginTownAsync(
                         session,
                         "select_character");
+
+                    // 好友上线推送：城镇初始化完成后推送好友列表 + 向在线好友互推 USERINFO。
+                    // 场景已就绪，实体注入才不会被客户端丢弃。失败仅记日志。
+                    try
+                    {
+                        await UnitedFriendSystem.NotifyPlayerEnteredGame(
+                            session,
+                            _sessionDirectory);
+                    }
+                    catch (Exception ex)
+                    {
+                        FileLogger.Log(
+                            $"[{ProtocolName}] friend online-notify failed " +
+                            $"cid={selectedCharacterId}: {ex}");
+                    }
+
                     await _dungeonRejoin.ProjectCandidateAsync(session);
                 }
                 catch (Exception ex)
@@ -473,6 +506,23 @@ namespace DfoServer.Network.Handlers
                     characterId);
                 session.GameSession = null;
                 session.PendingReturnSelectCharacterId = characterId;
+
+                // 返回选人 = 当前角色离开游戏：EnterCharacterSelectionState 会清零
+                // UserId/CharacterId，必须在清零前（本会话已从目录注销、不会自通知）推
+                // USER_LEAVE + 0x0112，好友端才能看到置灰 + "退出频道"。
+                try
+                {
+                    await UnitedFriendSystem.NotifyPlayerDisconnected(
+                        session,
+                        _sessionDirectory);
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Log(
+                        $"[{ProtocolName}] return-select friend offline-notify " +
+                        $"failed cid={characterId}: {ex}");
+                }
+
                 await _characterSelectHandler
                     .Handle_ENUM_CMDPACKET_RETURN_SELECT_CHARACTER(
                         session,
@@ -584,6 +634,21 @@ namespace DfoServer.Network.Handlers
                     characterId);
                 session.GameSession = null;
                 session.PendingReturnSelectCharacterId = characterId;
+
+                // 选择角色/切换 = 当前角色离开游戏：清零 UserId 前推下线通知，好友端置灰 + "退出频道"。
+                try
+                {
+                    await UnitedFriendSystem.NotifyPlayerDisconnected(
+                        session,
+                        _sessionDirectory);
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Log(
+                        $"[{ProtocolName}] select-character friend offline-notify " +
+                        $"failed cid={characterId}: {ex}");
+                }
+
                 EnterCharacterSelectionState(session);
                 return true;
             }

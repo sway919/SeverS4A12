@@ -634,6 +634,21 @@ namespace DfoServer.Network.Handlers
             if (s?.Player?.CurrentRun == null) return;
             await Dungeon.DungeonRunLifecycle.EndRunToTownAsync(s);
             s.Player.UserState = 0x00;
+            // 组队解散/拉回城镇：UserState 归位(0x00)，向同频道把 s 加为好友的人推 USERINFO
+            // 刷新好友面板状态图标（否则一直显示"繁忙"直到下线重登）。
+            if (_sessions != null)
+            {
+                try
+                {
+                    await DfoServer.Game.Friends.UnitedFriendSystem
+                        .NotifyUserStateChanged(s, _sessions);
+                }
+                catch (Exception stateEx)
+                {
+                    FileLogger.Log(
+                        $"[Party] PullBackToTown NotifyUserStateChanged 失败: {stateEx.Message}");
+                }
+            }
 
             var snap = TownAreaNotificationBuilder.CreateCurrentSnapshot(s.Player);
             await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0003, EnterSelectDungeonStateBuilder.BuildUserState(s.Player)));

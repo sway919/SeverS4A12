@@ -874,6 +874,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 if (_sendInDungeonLevelUpFollowups != null)
                     await _sendInDungeonLevelUpFollowups(session);
                 runtime.TryMarkLevelUpFollowupsSent();
+                await DfoServer.Game.Friends.UnitedFriendSystem
+                    .NotifyFriendListInfoChanged(session, _sessionDirectory);
             }
 
             if (!runtime.InventoryProjectionSent)

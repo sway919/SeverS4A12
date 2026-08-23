@@ -115,6 +115,7 @@ namespace DfoServer
             ("--selftest-mailbox", SelfTests.MailboxSelfTest.Run),
             ("--selftest-mercenary", SelfTests.MercenarySelfTest.Run),
             ("--selftest-equipment-regeneration-config", SelfTests.EquipmentRegenerationConfigSelfTest.Run),
+            ("--selftest-friends", SelfTests.UnitedFriendSystemSelfTest.Run),
         };
 
         // 顺序跑全部自测, 输出汇总表; 任一失败(或抛异常)退出码为 1。

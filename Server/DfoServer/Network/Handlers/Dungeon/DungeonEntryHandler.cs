@@ -2,6 +2,7 @@ using DfoServer.Game.Accounts;
 using DfoServer.Game.CharacterData;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
+using DfoServer.Game.Friends;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Quests;
 using DfoServer.GameWorld;
@@ -69,6 +70,9 @@ namespace DfoServer.Network.Handlers.Dungeon
                         $"area={anchor.AreaId} pos=({anchor.X},{anchor.Y})");
                 }
                 session.Player.UserState = 0x01;
+
+                // 副本状态变更 → 向"把 self 加为好友且同频道"的人推 USERINFO 更新好友面板图标（进副本→繁忙）。
+                await UnitedFriendSystem.NotifyUserStateChanged(session, _svc.Sessions);
 
                 var snapshot = TownAreaNotificationBuilder.CreateCurrentSnapshot(session.Player);
                 snapshot.AreaId = 0xFF;
@@ -564,6 +568,21 @@ namespace DfoServer.Network.Handlers.Dungeon
             var run = session.Player.CurrentRun;
             var runIdentity = run.CaptureIdentity();
             run.HellMode = req.HellPartyRequestFlag != 0 && DungeonData.IsHellDungeon(req.DungeonId);
+
+            // 幽灵分身修复（好友同屏进本场景）：进本提交后对同区域所有玩家广播
+            // USER_LEAVE(0x0006) 清掉城镇冻结分身；对好友在 leave 后补发 USERINFO(0x0002)
+            // 恢复图标（防被 leave 打成灰）。详见 UnitedFriendSystem.NotifyAreaLeaveAsync。
+            try
+            {
+                await UnitedFriendSystem.NotifyAreaLeaveAsync(
+                    session, _svc.Sessions);
+            }
+            catch (Exception leaveEx)
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] SELECT_DUNGEON 区域 leave 失败: "
+                    + leaveEx.Message);
+            }
 
             WarmUpDropConfigs(run.HellMode);
 

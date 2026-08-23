@@ -10,15 +10,18 @@ namespace DfoServer.Network.Handlers.Dungeon
         private readonly DungeonInstanceRegistry _instanceRegistry;
         private readonly DungeonProgressNotificationProjector
             _progressNotifications;
+        private readonly Game.Session.ISessionDirectory _sessions;
 
         internal DungeonTownReturnCoordinator(
             DungeonInstanceRegistry instanceRegistry,
-            DungeonProgressNotificationProjector progressNotifications)
+            DungeonProgressNotificationProjector progressNotifications,
+            Game.Session.ISessionDirectory sessions = null)
         {
             _instanceRegistry = instanceRegistry
                 ?? throw new ArgumentNullException(nameof(instanceRegistry));
             _progressNotifications = progressNotifications
                 ?? throw new ArgumentNullException(nameof(progressNotifications));
+            _sessions = sessions;
         }
 
         internal async Task<bool> ReturnAsync(
@@ -38,6 +41,21 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return false;
 
             session.Player.UserState = 0x00;
+            // 副本结算回城：UserState 归位(0x00)，向同频道把 self 加为好友的人推 USERINFO
+            // 刷新好友面板状态图标（否则一直显示"繁忙"直到下线重登）。
+            if (_sessions != null)
+            {
+                try
+                {
+                    await DfoServer.Game.Friends.UnitedFriendSystem
+                        .NotifyUserStateChanged(session, _sessions);
+                }
+                catch (Exception stateEx)
+                {
+                    FileLogger.Log(
+                        $"[DungeonTownReturn] NotifyUserStateChanged 失败: {stateEx.Message}");
+                }
+            }
             var snapshot = TownAreaNotificationBuilder.CreateCurrentSnapshot(
                 session.Player);
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(

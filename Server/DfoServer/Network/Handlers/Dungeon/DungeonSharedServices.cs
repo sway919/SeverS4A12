@@ -141,7 +141,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     ClockService.Instance);
             TownReturn = new DungeonTownReturnCoordinator(
                 InstanceRegistry,
-                ProgressNotifications);
+                ProgressNotifications,
+                Sessions);
             var entryCost = new Game.Dungeon.DungeonEntryCostService();
             EntryAdmission =
                 new Game.Dungeon.DungeonEntryAdmissionApplicationService(

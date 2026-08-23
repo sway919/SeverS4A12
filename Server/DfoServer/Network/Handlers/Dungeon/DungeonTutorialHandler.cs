@@ -168,6 +168,10 @@ namespace DfoServer.Network.Handlers.Dungeon
 
             _svc.CharacterExperience.GrantToLevel(session.Player, TutorialTargetLevel, "tutorial");
 
+            // 教程一键升级：向把 self 加为好友的人重推好友列表（节点数据，不分频道）。
+            await DfoServer.Game.Friends.UnitedFriendSystem
+                .NotifyFriendListInfoChanged(session, _svc.Sessions);
+
             var hasSkillPoints = _svc.ProgressNotifications.TryGetSkillPointProtocolState(
                 session, persist: true, logTag: "TUTORIAL_LEVEL_UP", out var skillPoints);
             var honorLevel = _svc.ProgressNotifications.ResolveHonorLevelForExp(session);

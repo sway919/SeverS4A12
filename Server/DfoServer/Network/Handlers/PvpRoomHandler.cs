@@ -7,6 +7,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using DfoServer.Game.Appearance;
+using DfoServer.Game.Friends;
 using DfoServer.Game.Pvp;
 using DfoServer.Game.Session;
 using DfoServer.Network.Builders;
@@ -662,6 +663,8 @@ namespace DfoServer.Network.Handlers
 
                     session.Player.TownPresenceReady = false;
                     session.Player.UserState = PvpUserState;
+                    // PvP 状态变更 → 向"把 self 加为好友且同频道"的人推 USERINFO 更新好友面板图标。
+                    await UnitedFriendSystem.NotifyUserStateChanged(session, _sessions);
                     // Queue both packets as one ordered publication per peer.
                     // Await outside the global room-state gate so a slow peer
                     // applies backpressure without blocking unrelated rooms.
@@ -1125,6 +1128,8 @@ namespace DfoServer.Network.Handlers
 
                         session.Player.TownPresenceReady = false;
                         session.Player.UserState = PvpUserState;
+                        // PvP 状态变更 → 向"把 self 加为好友且同频道"的人推 USERINFO 更新好友面板图标。
+                        await UnitedFriendSystem.NotifyUserStateChanged(session, _sessions);
                         joinCommitted = true;
                     }
                     catch
