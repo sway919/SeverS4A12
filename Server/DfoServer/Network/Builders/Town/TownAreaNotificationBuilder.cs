@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using DfoServer.Game.Session;
 using DfoServer.Network;
 
@@ -17,6 +17,7 @@ namespace DfoServer.Network.Builders
                 PosY = player.CurPosY,
                 Direction = player.CurDirection,
                 State = player.CurAreaState,
+                PositionExtra = player.CurPositionExtra,
             };
         }
 
@@ -65,7 +66,11 @@ namespace DfoServer.Network.Builders
 
         /// <summary>
         /// USER_POSITION(0x0016) NOTI: 把某玩家的移动广播给同区域其它人。
-        /// ⚠️ 字节布局为推测(参照 AREA_USERS 的 per-user 块: userId+x+y+dir+state), 需真机抓包校验。
+        /// 布局 = userId + SET_USER_POSITION(0x0023) 客户端包体的原始 7 字节
+        /// (int16 x, int16 y, byte direction, uint16 extra/疑似移动速度)。
+        /// 依据 2026-08-21 实机抓包: 客户端 0x0023 包体固定 7 字节, 第 5 字节取值 01-08(8 方向),
+        /// 第 6-7 字节 uint16 各角色恒定且随装备不同(100/230)。此前版本广播 dir+state(各 1 字节
+        /// 且为硬编码值), 与客户端上报布局不一致, 接收端只能硬摆坐标(瞬移、无走路动画)。
         /// </summary>
         public static byte[] BuildUserPosition(TownUserSnapshot snapshot)
         {
@@ -74,7 +79,7 @@ namespace DfoServer.Network.Builders
             writer.WriteInt16(snapshot.PosX);
             writer.WriteInt16(snapshot.PosY);
             writer.WriteByte(snapshot.Direction);
-            writer.WriteByte(snapshot.State);
+            writer.WriteUInt16(snapshot.PositionExtra);
             return writer.ToArray();
         }
 

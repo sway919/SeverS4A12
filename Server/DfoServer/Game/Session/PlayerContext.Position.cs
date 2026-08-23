@@ -47,5 +47,10 @@ namespace DfoServer.Game.Session
         /// <summary>
         /// </summary>
         public DateTime LastPositionPersistAt { get; set; } = DateTime.MinValue;
+
+        // SET_USER_POSITION(0x0023) 包体第 5-6 字节(uint16 小端)的原样值, 实机抓包显示各角色恒定
+        // 且随装备/装扮不同(见过 100/230), 疑似移动速度; 出生点首包为 0x0068=104, 作为默认值。
+        // 语义未完全确认, 仅用于 0x0016 广播时按客户端原始布局原样回带。
+        public ushort CurPositionExtra { get; set; } = 104;
     }
 }

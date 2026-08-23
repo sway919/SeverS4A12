@@ -162,6 +162,15 @@ namespace DfoServer.Network.Handlers
             if (body == null || body.Length < 4) return;
             var gotoPosX = BitConverter.ToInt16(body, 0);
             var gotoPosY = BitConverter.ToInt16(body, 2);
+
+            // 包体实为 7 字节(2026-08-21 实机抓包确认): x(2) y(2) direction(1, 01-08) extra(2, 疑似移动速度)。
+            // 之前只取 x/y, 导致广播出去的方向/状态是硬编码值, 同屏他人只能看到瞬移、没有走路动画。
+            if (body.Length >= 7)
+            {
+                session.Player.CurDirection = body[4];
+                session.Player.CurPositionExtra = BitConverter.ToUInt16(body, 5);
+            }
+
             session.Player.CurPosX = gotoPosX;
             session.Player.CurPosY = gotoPosY;
             PersistPosition(session, forceImmediate: false, source: "set_user_position");
@@ -222,6 +231,9 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
+            var oldTownId = session.Player.CurTownId;
+            var oldAreaId = session.Player.CurAreaId;
+
             session.Player.CurTownId = gotoTownId;
             session.Player.CurAreaId = gotoAreaId;
             session.Player.CurPosX = gotoPosX;
@@ -230,6 +242,11 @@ namespace DfoServer.Network.Handlers
             session.Player.CurAreaState = 0x03;
 
             var selfSnapshot = TownAreaNotificationBuilder.CreateCurrentSnapshot(session.Player);
+
+            // ⚠️ 不要在这里向旧区域广播 USER_LEAVE(0x0006): 实机验证该包在客户端的语义
+            // 是"用户离开", 会连带销毁队伍成员对象(左上角队伍列表中该成员消失), 之后
+            // 该成员进副本触发组队 fan-out 时, 旧区域队友的客户端引用已销毁对象而闪退。
+            // 切房间残留分身的移除走名册对账(见 NotifyOldAreaDepartureAsync)。
 
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0017, TownAreaNotificationBuilder.BuildUserArea(selfSnapshot)));
             if (!CanContinueTownProjection(session, projectionGuard))
@@ -243,8 +260,59 @@ namespace DfoServer.Network.Handlers
             if (!CanContinueTownProjection(session, projectionGuard))
                 return;
 
+            // 联机同屏: 区域真正变化时处理旧区域的残留分身(默认名册对账)。
+            if (oldTownId != gotoTownId || oldAreaId != gotoAreaId)
+                await NotifyOldAreaDepartureAsync(session, oldTownId, oldAreaId, selfSnapshot);
+
             PersistPosition(session, forceImmediate: true, source: "set_user_area");
         }
+
+        // 切区域后旧区域残留分身的移除。env DFO_AREA_LEAVE_NOTIFY:
+        //   0 = 不通知(残留分身保留, 观察方切房间才刷新)
+        //   1(默认) = 名册对账: 给旧区域广播更新后的 AREA_USERS(0x0018, 不含离开者),
+        //       客户端按权威名册重建当前区域分身列表, 只动分身不碰队伍状态(已实机验证)
+        //   2 = 位置迁移: 给旧区域广播离开者的 USER_AREA(0x0017, 带新区域),
+        //       已实机验证同样有效, 作为备选保留
+        private async Task NotifyOldAreaDepartureAsync(
+            EnhancedClientSession session,
+            byte oldTownId,
+            byte oldAreaId,
+            TownUserSnapshot selfSnapshot)
+        {
+            if (_areaLeaveNotifyMode == 0 || _sessions == null)
+                return;
+            // 此时 session.Player 的 town/area 已是新值, GetSessionsInArea 按旧区域查询天然排除离开者。
+            var remaining = _sessions.GetSessionsInArea(
+                oldTownId, oldAreaId, session.Player.CharacterId);
+            if (remaining.Count == 0)
+                return;
+
+            if (_areaLeaveNotifyMode == 1)
+            {
+                var roster = new List<TownUserSnapshot>(remaining.Count);
+                foreach (var o in remaining)
+                    roster.Add(TownAreaNotificationBuilder.CreateCurrentSnapshot(o.Player));
+                await _sessions.BroadcastToAreaAsync(
+                    oldTownId, oldAreaId, session.Player.CharacterId,
+                    GamePacketEnvelopeBuilder.Build(0x00, 0x0018,
+                        TownAreaNotificationBuilder.BuildAreaUsers(oldTownId, oldAreaId, roster)));
+            }
+            else if (_areaLeaveNotifyMode == 2)
+            {
+                await _sessions.BroadcastToAreaAsync(
+                    oldTownId, oldAreaId, session.Player.CharacterId,
+                    GamePacketEnvelopeBuilder.Build(0x00, 0x0017,
+                        TownAreaNotificationBuilder.BuildUserArea(selfSnapshot)));
+            }
+            FileLogger.Log(
+                $"[{ProtocolName}] AREA_LEAVE_NOTIFY mode={_areaLeaveNotifyMode} " +
+                $"cid={session.Player.CharacterId} from={oldTownId}:{oldAreaId} remaining={remaining.Count}");
+        }
+
+        // 实机验证(2026-08-21): 档1名册对账与档2位置迁移都能移除残留分身且不影响队伍状态。
+        // 默认采用档1: 名册是权威状态同步, 能顺带纠正分身漂移(漏插入/漏删除), 边界情况更安全。
+        private static readonly int _areaLeaveNotifyMode =
+            int.TryParse(System.Environment.GetEnvironmentVariable("DFO_AREA_LEAVE_NOTIFY"), out var alm) ? alm : 1;
 
         // 同屏"插入他人"包的构造。脱壳客户端逆向确认(2026-07-06夜):右键组队邀请要求
         // 目标客户端对象 vtable[+40] 返回的 type==4(sub_118C100=sub_118C080==4),否则报字符串311
