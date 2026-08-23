@@ -82,9 +82,9 @@ namespace DfoServer.SelfTests
             // 每个测试阶段用独立库文件: SqliteDatabaseBootstrap 按路径缓存"已初始化",
             // 同路径重建不会重跑 schema+迁移, 会残留上一阶段数据。
             var tempDb = Path.Combine(tempDir, $"inventory_{_dbSeq++}.db");
-            // 临时库预置 user_version = 最新版本-1, Apply 只跑最后一条迁移(v56, 纯建表无 PVF 依赖)。
-            // 好友表 united_friend_relations 由 item_schema.sql 统一建表——好友迁移已从迁移链删除
-            // (v57/v58), 新库 schema 直接建 BINARY 大小写敏感表, 不走迁移。
+            // 临时库预置 user_version = 最新版本-1, Apply 只跑最后一条迁移(v57, 建好友表, 无 PVF 依赖)。
+            // 好友表 united_friend_relations 同时由 item_schema.sql(每次初始化幂等执行)创建, 迁移 v57
+            // 与 schema 双路径一致; 键为 BINARY 大小写敏感, 与 characters.name 对齐。
             using (var conn = new SqliteConnection($"Data Source={tempDb}"))
             {
                 conn.Open();

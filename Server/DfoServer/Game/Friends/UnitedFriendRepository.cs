@@ -10,7 +10,7 @@ namespace DfoServer.Game.Friends
     ///
     /// 建表由 item_schema.sql（新库）+ SqliteMigrations v57（旧库）负责，构造时经
     /// SqliteDatabaseBootstrap.Initialize 先跑 schema+迁移，因此本仓储只做表 CRUD，
-    /// 不得运行时隐式建表（见 S4A21 AGENTS.md 硬性约定）。
+    /// 不得运行时隐式建表（schema+迁移两处同步维护，见 CONTRIBUTING.md 与设计文档 §2.2）。
     /// 单条 INSERT/DELETE 由 SQLite 原子执行，无需显式事务；多表业务写入才需同一事务。
     /// 内存图（UnitedFriendSystem.Friends）为运行期权威，本表仅在启动/写边/删边时访问。
     /// </summary>
