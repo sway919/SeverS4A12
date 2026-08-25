@@ -2,6 +2,7 @@ using PvfLib;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace DfoServer.Game.Inventory
 {
@@ -40,6 +41,103 @@ namespace DfoServer.Game.Inventory
                 FileLogger.Log($"  [StackableItemProvider] failed to load item=0x{itemTemplateId:X8}: {ex.Message}");
                 return null;
             }
+        }
+
+        // [cooltime group]：同组消耗品共享冷却（如远古精灵秘药全系为 99）。
+        internal static int ResolveCooltimeGroup(int itemTemplateId)
+        {
+            var item = Load(itemTemplateId);
+            if (item?.Root == null)
+                return 0;
+
+            var nodes = item.Root.GetChildren("cooltime group");
+            if (nodes.Count == 0)
+                return 0;
+            return TryReadFirstPositiveInt(item, nodes, out var group) ? group : 0;
+        }
+
+        // 返回与 item 同冷却组的全部道具 id（含自身）；无组或索引不可用时只含自身。
+        internal static IReadOnlyList<int> ResolveCooltimeGroupMembers(int itemTemplateId)
+        {
+            var group = ResolveCooltimeGroup(itemTemplateId);
+            if (group > 0
+                && CooltimeGroupMembers.Value.TryGetValue(group, out var members)
+                && members.Count > 0)
+            {
+                return members;
+            }
+
+            return new[] { itemTemplateId };
+        }
+
+        private static readonly Lazy<Dictionary<int, List<int>>> CooltimeGroupMembers =
+            new Lazy<Dictionary<int, List<int>>>(BuildCooltimeGroupMembers);
+
+        // 全量扫描 stackable.lst 建立 组→成员 索引；只在首次需要时构建一次。
+        private static Dictionary<int, List<int>> BuildCooltimeGroupMembers()
+        {
+            var map = new Dictionary<int, List<int>>();
+            try
+            {
+                var list = LstFile.Parse(GameWorld.PvfArchiveAccessor.ReadText("stackable/stackable.lst"));
+                foreach (var entry in list.Entries)
+                {
+                    var group = ResolveCooltimeGroup(entry.Id);
+                    if (group <= 0)
+                        continue;
+                    if (!map.TryGetValue(group, out var members))
+                        map[group] = members = new List<int>();
+                    members.Add(entry.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log($"  [StackableItemProvider] cooltime group index build failed: {ex.Message}");
+            }
+            return map;
+        }
+
+        private static bool TryReadFirstPositiveInt(
+            StackableItemFile item,
+            IReadOnlyList<ScriptNode> nodes,
+            out int value)
+        {
+            value = 0;
+            foreach (var node in nodes)
+            {
+                if (TryReadFirstPositiveInt(item, node, out value))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryReadFirstPositiveInt(
+            StackableItemFile item,
+            ScriptNode node,
+            out int value)
+        {
+            foreach (var dataItem in node.DataItems)
+            {
+                var raw = dataItem.GetContent(item.Content)
+                    .Trim()
+                    .Trim('`')
+                    .Trim();
+                var match = Regex.Match(raw, @"(?<!\d)\d+");
+                if (match.Success
+                    && int.TryParse(match.Value, out value)
+                    && value > 0)
+                    return true;
+            }
+
+            foreach (var child in node.Children)
+            {
+                if (TryReadFirstPositiveInt(item, child, out value))
+                    return true;
+            }
+
+            value = 0;
+            return false;
         }
 
         internal static bool IsLegacyContainer(int itemTemplateId)

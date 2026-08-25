@@ -205,6 +205,46 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
+            InventoryMutationResult experiencePotionMutation = null;
+            string experiencePotionDetail = null;
+            var experiencePotionHandled = false;
+            if (TryGetOwnedInventoryLease(session, cid, out lease))
+            {
+                lock (lease.SyncRoot)
+                {
+                    experiencePotionHandled = ExperienceBonusPotionService.TryUse(
+                        lease,
+                        cid,
+                        listType,
+                        slotIndex,
+                        itemCode,
+                        session.Player?.CurrentRun != null,
+                        out experiencePotionMutation,
+                        out experiencePotionDetail);
+                }
+            }
+
+            if (experiencePotionHandled)
+            {
+                var success = experiencePotionMutation != null;
+                var potionPlan = BuildUseStackableResponsePlan(
+                    success,
+                    experiencePotionMutation,
+                    listType,
+                    slotIndex,
+                    instanceValue,
+                    itemCode);
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    0x002C,
+                    potionPlan.AckBody));
+                FileLogger.Log(
+                    $"[{ProtocolName}] USE_STACKABLE exp-bonus potion: "
+                    + $"cid={cid} item=0x{itemCode:X8} success={success} "
+                    + experiencePotionDetail);
+                return;
+            }
+
             // [unlimited ...] 无限次使用道具（如无限猫头鹰 ID51）：校验物品存在后回成功 ACK，但不扣数量。
             if (itemCode > 0 && IsUnlimitedUseStackable(itemCode))
             {

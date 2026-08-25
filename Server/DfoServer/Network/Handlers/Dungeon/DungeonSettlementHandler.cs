@@ -177,6 +177,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                                 session,
                                 settlement.ExperienceGrant,
                                 "SET_PLAY_RESULT",
+                                experiencePotionBonusExp:
+                                    settlement.ExperiencePotionBonusExp,
                                 reloadMissingAccountProgress: true))
                     || !await ExecuteSettlementProjectionEffectAsync(
                         session,
@@ -203,10 +205,14 @@ namespace DfoServer.Network.Handlers.Dungeon
                                         settlement.GrowthContractBonusExp),
                                     monsterGrowthContractExp: ToInt32Saturated(
                                         settlement.MonsterGrowthContractBonusExp),
+                                    monsterEquipmentExp: ToInt32Saturated(
+                                        settlement.MonsterEquipmentBonusExp),
                                     adventureGroupExp: ToInt32Saturated(
                                         settlement.AdventureGroupBonusExp),
                                     channelExp: ToInt32Saturated(
                                         settlement.ChannelBonusExp),
+                                    experiencePotionExp: ToInt32Saturated(
+                                        settlement.ExperiencePotionBonusExp),
                                     monsterExp: settlement.MonsterTotalExp,
                                     bossExp: ToInt32Saturated(
                                         settlement.BossTotalExp),
@@ -333,6 +339,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     $"rewardRankBonusIndex={settlement.RankBonusIndex} " +
                     $"base={settlement.ClearBaseExp} " +
                     $"scoreBonus={settlement.ScoreBonusExp} " +
+                    $"potionBonus={settlement.ExperiencePotionBonusExp} " +
+                    $"equipBonus={settlement.MonsterEquipmentBonusExp} " +
                     $"total={settlement.ClearTotalExp} " +
                     $"charExp={session.Player.Exp}");
 
@@ -681,14 +689,24 @@ namespace DfoServer.Network.Handlers.Dungeon
                 settlement.ClearBaseExp
                 * MonsterRewardTable.GetClearRankExpBonusRate(
                     rank.RankBonusIndex));
-            var delta = scoreBonus > previousScore
+            var scoreDelta = scoreBonus > previousScore
                 ? scoreBonus - previousScore
                 : 0;
+            var updatedPotionBonus = ExperienceBonusPotionService.CalculateBonus(
+                CalculatePrePotionTotal(settlement, scoreBonus),
+                settlement.ExperiencePotionBonusRate);
+            var potionDelta = updatedPotionBonus
+                    > settlement.ExperiencePotionBonusExp
+                ? updatedPotionBonus - settlement.ExperiencePotionBonusExp
+                : 0;
+            var adjustment = CharacterExperienceService.AddSaturating(
+                scoreDelta,
+                potionDelta);
             var authoritativeEffectId = GetAuthoritativeSettlementEffectId(run);
             var authoritativeCommitted = run.Effects.GetState(
                 authoritativeEffectId) == DungeonEffectState.Committed;
 
-            if (!authoritativeCommitted || delta == 0)
+            if (!authoritativeCommitted || adjustment == 0)
             {
                 ApplyRankFields(settlement, rank, scoreBonus);
                 return true;
@@ -711,7 +729,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                                     session.Account?.AccountId ?? 0,
                                     session.Player.Level,
                                     session.Player.Exp,
-                                    delta,
+                                    adjustment,
                                     out adjustmentGrant,
                                     out var error))
                         {
@@ -734,7 +752,9 @@ namespace DfoServer.Network.Handlers.Dungeon
             FileLogger.Log(
                 $"[DungeonHandler] settlement score experience adjustment: " +
                 $"instance={run.PartyDungeonInstanceId} run={run.RunId} " +
-                $"rank={rankPoint} scoreBonus={scoreBonus} delta={delta}");
+                $"rank={rankPoint} scoreBonus={scoreBonus} " +
+                $"scoreDelta={scoreDelta} potionDelta={potionDelta} " +
+                $"delta={adjustment}");
             return true;
         }
 
@@ -752,6 +772,10 @@ namespace DfoServer.Network.Handlers.Dungeon
             settlement.RankGrade = rank.RankGrade;
             settlement.RankBonusIndex = rank.RankBonusIndex;
             settlement.ScoreBonusExp = scoreBonus;
+            settlement.ExperiencePotionBonusExp =
+                ExperienceBonusPotionService.CalculateBonus(
+                    CalculatePrePotionTotal(settlement, scoreBonus),
+                    settlement.ExperiencePotionBonusRate);
             settlement.ClearBonusExp = CharacterExperienceService.AddSaturating(
                 CharacterExperienceService.AddSaturating(
                     CharacterExperienceService.AddSaturating(
@@ -764,12 +788,33 @@ namespace DfoServer.Network.Handlers.Dungeon
                             settlement.ChannelBonusExp),
                         settlement.GrowthContractBonusExp),
                     settlement.BlackDiamondBonusExp),
-                settlement.AdventureGroupBonusExp);
+                CharacterExperienceService.AddSaturating(
+                    settlement.AdventureGroupBonusExp,
+                    settlement.ExperiencePotionBonusExp));
             settlement.ClearTotalExp = CharacterExperienceService.AddSaturating(
                 settlement.ClearBaseExp,
                 settlement.ClearBonusExp);
             settlement.AuthoritativeRankCaptured = true;
         }
+
+        private static uint CalculatePrePotionTotal(
+            DungeonSettlementRuntime settlement,
+            uint scoreBonus)
+            => CharacterExperienceService.AddSaturating(
+                settlement.ClearBaseExp,
+                CharacterExperienceService.AddSaturating(
+                    CharacterExperienceService.AddSaturating(
+                        CharacterExperienceService.AddSaturating(
+                            CharacterExperienceService.AddSaturating(
+                                CharacterExperienceService.AddSaturating(
+                                    scoreBonus,
+                                    settlement.AvatarBonusExp),
+                                settlement.CreatureBonusExp),
+                            settlement.ChannelBonusExp),
+                        settlement.GrowthContractBonusExp),
+                    CharacterExperienceService.AddSaturating(
+                        settlement.BlackDiamondBonusExp,
+                        settlement.AdventureGroupBonusExp)));
 
         private DungeonSettlementRuntime BuildSettlementRuntime(
             EnhancedClientSession session,
@@ -930,6 +975,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 GrowthContractBonusExp = clearExp.GrowthContractBonus,
                 BlackDiamondBonusExp = clearExp.BlackDiamondBonus,
                 AdventureGroupBonusExp = clearExp.AdventureGroupBonus,
+                ExperiencePotionBonusRate = clearExp.ExperiencePotionBonusRate,
+                ExperiencePotionBonusExp = clearExp.ExperiencePotionBonus,
                 ClearBonusExp = clearExp.Bonus,
                 ClearTotalExp = clearExp.Total,
                 PreviousLevel = session.Player.Level,
@@ -956,6 +1003,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     monsterExperience.MonsterGrowthContractBonusExperience,
                 MonsterChannelBonusExp =
                     monsterExperience.MonsterChannelBonusExperience,
+                MonsterEquipmentBonusExp =
+                    monsterExperience.MonsterEquipmentBonusExperience,
                 ClearTimeMilliseconds = clearTimeMilliseconds,
             };
         }
@@ -1369,6 +1418,28 @@ namespace DfoServer.Network.Handlers.Dungeon
             var bonusSnapshot = run.CaptureExperienceBonusSnapshot();
             var channelBonus = DungeonExperienceCalculator
                 .CalculateChannelClearBonus(clearBaseExp, bonusSnapshot);
+            var experiencePotionBonusRate =
+                ExperienceBonusPotionService.GetActiveRate(
+                    session.Player.CharacterId);
+            var prePotionTotal = CharacterExperienceService.AddSaturating(
+                clearBaseExp,
+                CharacterExperienceService.AddSaturating(
+                    CharacterExperienceService.AddSaturating(
+                        CharacterExperienceService.AddSaturating(
+                            CharacterExperienceService.AddSaturating(
+                                CharacterExperienceService.AddSaturating(
+                                    scoreBonus,
+                                    participantBonuses.AvatarBonusExperience),
+                                participantBonuses.CreatureBonusExperience),
+                            channelBonus),
+                        growthContractBonus),
+                    CharacterExperienceService.AddSaturating(
+                        blackDiamondBonus,
+                        adventureGroupBonus)));
+            var experiencePotionBonus =
+                ExperienceBonusPotionService.CalculateBonus(
+                    prePotionTotal,
+                    experiencePotionBonusRate);
 
             FileLogger.Log(
                 $"[{DungeonSharedServices.ProtocolLogName}] "
@@ -1386,7 +1457,9 @@ namespace DfoServer.Network.Handlers.Dungeon
                 channelBonus,
                 growthContractBonus,
                 blackDiamondBonus,
-                adventureGroupBonus);
+                adventureGroupBonus,
+                experiencePotionBonusRate,
+                experiencePotionBonus);
         }
 
         private static uint CalculateNonStandardCompatibilityClearBase(
@@ -1482,7 +1555,9 @@ namespace DfoServer.Network.Handlers.Dungeon
                 uint channelBonus,
                 uint growthContractBonus,
                 uint blackDiamondBonus,
-                uint adventureGroupBonus)
+                uint adventureGroupBonus,
+                int experiencePotionBonusRate,
+                uint experiencePotionBonus)
             {
                 Base = baseExp;
                 ScoreBonus = scoreBonus;
@@ -1492,6 +1567,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 GrowthContractBonus = growthContractBonus;
                 BlackDiamondBonus = blackDiamondBonus;
                 AdventureGroupBonus = adventureGroupBonus;
+                ExperiencePotionBonusRate = experiencePotionBonusRate;
+                ExperiencePotionBonus = experiencePotionBonus;
             }
 
             internal uint Base { get; }
@@ -1502,6 +1579,8 @@ namespace DfoServer.Network.Handlers.Dungeon
             internal uint GrowthContractBonus { get; }
             internal uint BlackDiamondBonus { get; }
             internal uint AdventureGroupBonus { get; }
+            internal int ExperiencePotionBonusRate { get; }
+            internal uint ExperiencePotionBonus { get; }
             internal uint Bonus => CharacterExperienceService.AddSaturating(
                 CharacterExperienceService.AddSaturating(
                     CharacterExperienceService.AddSaturating(
@@ -1514,7 +1593,9 @@ namespace DfoServer.Network.Handlers.Dungeon
                             ChannelBonus),
                         GrowthContractBonus),
                     BlackDiamondBonus),
-                AdventureGroupBonus);
+                CharacterExperienceService.AddSaturating(
+                    AdventureGroupBonus,
+                    ExperiencePotionBonus));
             internal uint Total => CharacterExperienceService.AddSaturating(Base, Bonus);
         }
 

@@ -154,6 +154,15 @@ CREATE TABLE IF NOT EXISTS character_name_tag_state (
     FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE
 );
 
+-- Persistent [exp bonus rate] stackable effects, such as Ancient Elf Elixir.
+CREATE TABLE IF NOT EXISTS character_experience_bonus_effects (
+    character_id INTEGER PRIMARY KEY,
+    source_item_id INTEGER NOT NULL,
+    bonus_rate INTEGER NOT NULL CHECK (bonus_rate > 0),
+    expires_at INTEGER NOT NULL CHECK (expires_at > 0),
+    FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS character_avatar_uid_sequence (
     avatar_uid INTEGER PRIMARY KEY AUTOINCREMENT
 );
