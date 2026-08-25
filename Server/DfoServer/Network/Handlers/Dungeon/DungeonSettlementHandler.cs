@@ -205,6 +205,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                                         settlement.GrowthContractBonusExp),
                                     monsterGrowthContractExp: ToInt32Saturated(
                                         settlement.MonsterGrowthContractBonusExp),
+                                    monsterEquipmentExp: ToInt32Saturated(
+                                        settlement.MonsterEquipmentBonusExp),
                                     adventureGroupExp: ToInt32Saturated(
                                         settlement.AdventureGroupBonusExp),
                                     channelExp: ToInt32Saturated(
@@ -338,6 +340,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     $"base={settlement.ClearBaseExp} " +
                     $"scoreBonus={settlement.ScoreBonusExp} " +
                     $"potionBonus={settlement.ExperiencePotionBonusExp} " +
+                    $"equipBonus={settlement.MonsterEquipmentBonusExp} " +
                     $"total={settlement.ClearTotalExp} " +
                     $"charExp={session.Player.Exp}");
 
@@ -1000,6 +1003,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     monsterExperience.MonsterGrowthContractBonusExperience,
                 MonsterChannelBonusExp =
                     monsterExperience.MonsterChannelBonusExperience,
+                MonsterEquipmentBonusExp =
+                    monsterExperience.MonsterEquipmentBonusExperience,
                 ClearTimeMilliseconds = clearTimeMilliseconds,
             };
         }

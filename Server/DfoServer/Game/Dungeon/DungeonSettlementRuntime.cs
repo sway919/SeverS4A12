@@ -71,6 +71,7 @@ namespace DfoServer.Game.Dungeon
         internal uint NamedMonsterTotalExp;
         internal uint MonsterGrowthContractBonusExp;
         internal uint MonsterChannelBonusExp;
+        internal uint MonsterEquipmentBonusExp;
         internal int ClearTimeMilliseconds;
     }
 }

@@ -149,6 +149,7 @@ namespace DfoServer.SelfTests
                 clear.ParticipantBaseExperience,
                 ref failures);
             VerifyBonusInventoryFacts(ref failures);
+            VerifyCharmExpAdvantageScan(ref failures);
 
             var participantRuntime = new DungeonParticipantExperienceRuntime();
             var frozenBonuses = new DungeonParticipantExperienceBonusSnapshot(
@@ -186,14 +187,16 @@ namespace DfoServer.SelfTests
                 isBoss: false,
                 isChampion: true,
                 isSuperChampion: false,
-                isNamedMonster: false);
+                isNamedMonster: false,
+                equipmentBonusExperience: 60);
             var participantSnapshot = participantRuntime.Capture();
             Check(
                 "participant runtime separates base, bonus, total, and type projection",
                 participantSnapshot.MonsterBaseExperience == 7408
                     && participantSnapshot.MonsterGrowthContractBonusExperience == 1480
                     && participantSnapshot.MonsterChannelBonusExperience == 50
-                    && participantSnapshot.MonsterTotalExperience == 8938
+                    && participantSnapshot.MonsterEquipmentBonusExperience == 60
+                    && participantSnapshot.MonsterTotalExperience == 8998
                     && participantSnapshot.ChampionBaseExperience == 4939,
                 ref failures);
 
@@ -229,8 +232,9 @@ namespace DfoServer.SelfTests
         {
             const uint MonsterBaseExperience = 197560;
             const int MonsterGrowthBonus = 39484;
+            const int MonsterEquipmentBonus = 59268;
             const uint MonsterTotalExperience =
-                MonsterBaseExperience + MonsterGrowthBonus;
+                MonsterBaseExperience + MonsterGrowthBonus + MonsterEquipmentBonus;
             var body = DungeonNotificationBuilder.BuildClearDungeonReward(
                 clearBaseExp: 78261,
                 partyClearBreakdownExp: 39130,
@@ -240,6 +244,7 @@ namespace DfoServer.SelfTests
                 growthContractExp: 15652,
                 monsterGrowthContractExp: MonsterGrowthBonus,
                 experiencePotionExp: 7777,
+                monsterEquipmentExp: MonsterEquipmentBonus,
                 monsterExp: MonsterTotalExperience);
 
             const int MonsterGrowthBonusOffset = 17 + 18 * sizeof(int);
@@ -301,8 +306,16 @@ namespace DfoServer.SelfTests
                 ref failures);
             Check(
                 "A14 client identity tail minus kill bonuses equals kill base",
-                projectedKillTotal - projectedKillBonus
+                projectedKillTotal - projectedKillBonus - MonsterEquipmentBonus
                     == MonsterBaseExperience,
+                ref failures);
+            const int MonsterEquipmentBonusOffset = 17 + 20 * sizeof(int);
+            var projectedEquipmentBonus = BitConverter.ToInt32(
+                body,
+                MonsterEquipmentBonusOffset);
+            Check(
+                "A14 0x0023 projects equipment(charm) bonus in slot 21",
+                projectedEquipmentBonus == MonsterEquipmentBonus,
                 ref failures);
         }
 
@@ -459,6 +472,75 @@ namespace DfoServer.SelfTests
                 "equipment avatar slots and PetInventoryAccessor produce bonus facts",
                 equipped.HasEquippedAvatar
                     && equipped.HasEquippedCreature,
+                ref failures);
+        }
+
+        // 纹章扫描用注入解析器, 不加载 PVF。快捷栏区间与
+        // CharmExpAdvantageService 一致: Main 背包槽位 3-8。
+        private static void VerifyCharmExpAdvantageScan(ref int failures)
+        {
+            const int CharmItemId = 400360007;
+            EquipmentType TypeOf(int itemId)
+                => itemId == CharmItemId ? EquipmentType.Charm : EquipmentType.Unknown;
+            int AdvantageOf(int itemId)
+                => itemId == CharmItemId ? 30 : 0;
+
+            var inventory = new InventoryService(
+                characterId: 990882,
+                accountId: 990882);
+            inventory.SetItem(
+                InventoryListType.Main,
+                slotIndex: 5,
+                ItemCore.Create(ItemCore.KindEquipment, itemId: CharmItemId));
+            Check(
+                "charm in a quick slot exposes its exp advantage percent",
+                CharmExpAdvantageService.ScanQuickSlot(inventory, TypeOf, AdvantageOf) == 30,
+                ref failures);
+
+            var outsideQuickSlot = new InventoryService(
+                characterId: 990883,
+                accountId: 990883);
+            outsideQuickSlot.SetItem(
+                InventoryListType.Main,
+                slotIndex: 12,
+                ItemCore.Create(ItemCore.KindEquipment, itemId: CharmItemId));
+            Check(
+                "charm outside quick slots gives no bonus",
+                CharmExpAdvantageService.ScanQuickSlot(outsideQuickSlot, TypeOf, AdvantageOf) == 0,
+                ref failures);
+
+            var noCharm = new InventoryService(
+                characterId: 990884,
+                accountId: 990884);
+            noCharm.SetItem(
+                InventoryListType.Main,
+                slotIndex: 4,
+                ItemCore.Create(ItemCore.KindConsumable, itemId: 1001));
+            Check(
+                "consumables in quick slots are ignored",
+                CharmExpAdvantageService.ScanQuickSlot(noCharm, TypeOf, AdvantageOf) == 0,
+                ref failures);
+
+            Check(
+                "charm exp bonus scales with the monster base (30%)",
+                DungeonExperienceCalculator.FloorToUInt32(4939 * 0.30) == 1481,
+                ref failures);
+
+            var carryRuntime = new DungeonParticipantExperienceRuntime();
+            var firstGrant = carryRuntime.ApplyEquipmentBonusRate(3, 30);
+            var secondGrant = carryRuntime.ApplyEquipmentBonusRate(3, 30);
+            uint carryTotal = firstGrant + secondGrant;
+            for (var k = 2; k < 10; k++)
+                carryTotal += carryRuntime.ApplyEquipmentBonusRate(3, 30);
+            Check(
+                "equipment bonus carry keeps tiny bases from flooring to zero",
+                firstGrant == 0 && secondGrant == 1 && carryTotal == 9,
+                ref failures);
+            Check(
+                "equipment bonus carry ignores zero base and zero rate",
+                carryRuntime.ApplyEquipmentBonusRate(0, 30) == 0
+                    && new DungeonParticipantExperienceRuntime()
+                        .ApplyEquipmentBonusRate(100, 0) == 0,
                 ref failures);
         }
 
